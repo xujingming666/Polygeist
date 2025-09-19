@@ -9,6 +9,7 @@
 #include "clang-mlir.h"
 #include "../ArgumentList.h"
 #include "TypeUtils.h"
+#include "Prelude.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/DLTI/DLTI.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
@@ -3270,10 +3271,10 @@ ValueCategory MLIRScanner::VisitBinaryOperator(clang::BinaryOperator *BO) {
 
 ValueCategory MLIRScanner::VisitExprWithCleanups(ExprWithCleanups *E) {
   auto ret = Visit(E->getSubExpr());
-  for (auto &child : E->children()) {
-    child->dump();
-    llvm::errs() << "cleanup not handled\n";
-  }
+  // for (auto &child : E->children()) {
+  //   child->dump();
+  //   llvm::errs() << "cleanup not handled\n";
+  // }
   return ret;
 }
 
@@ -5998,6 +5999,17 @@ static bool parseMLIR(const char *Argv0, std::vector<std::string> filenames,
   for (const auto &Include : Includes) {
     Argv.push_back("-include");
     Argv.emplace_back(Include);
+  }
+
+  // Add prelude include
+  auto tmpFilePath = createPreludeFile();
+  FileCleanup cleanup(tmpFilePath);
+  {
+    char *chars = (char *)malloc(tmpFilePath.length() + 1);
+    memcpy(chars, tmpFilePath.data(), tmpFilePath.length());
+    chars[tmpFilePath.length()] = 0;
+    Argv.push_back("-include");
+    Argv.push_back(chars);
   }
 
   Argv.push_back("-emit-ast");
