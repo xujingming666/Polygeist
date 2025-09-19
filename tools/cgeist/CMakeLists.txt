@@ -30,6 +30,7 @@ add_clang_executable(cgeist
   Lib/IfScope.cc
   Lib/TypeUtils.cc
   Lib/CGCall.cc 
+  Lib/Prelude.cc 
 )
 if(POLYGEIST_ENABLE_CUDA)
   target_compile_definitions(cgeist
@@ -53,6 +54,7 @@ COMPONENT cgeist)
 target_include_directories(cgeist PRIVATE
   "${LLVM_SOURCE_DIR}/../clang/include"
   "${CMAKE_BINARY_DIR}/tools/clang/include"
+  "${CMAKE_BINARY_DIR}/tools/cgeist"
 )
 
 if(POLYGEIST_ENABLE_POLYMER)
@@ -130,6 +132,17 @@ list(APPEND CGEIST_LIBS
   clangLex
   clangSerialization
 )
+
+
+add_custom_command(
+  OUTPUT PreludeInternal.h.inc
+  COMMAND echo "R\\\"prelude\\(" > PreludeInternal.h.inc
+  COMMAND cat ${PROJECT_SOURCE_DIR}/tools/cgeist/Lib/PreludeInternal.h >> PreludeInternal.h.inc
+  COMMAND echo "\\)prelude\\\"" >> PreludeInternal.h.inc
+  DEPENDS ${PROJECT_SOURCE_DIR}/tools/cgeist/Lib/PreludeInternal.h
+)
+add_custom_target(PreludeInternal DEPENDS PreludeInternal.h.inc)
+add_dependencies(cgeist PreludeInternal)
 
 target_link_libraries(cgeist PRIVATE ${CGEIST_LIBS})
 add_dependencies(cgeist MLIRPolygeistOpsIncGen MLIRPolygeistPassIncGen)

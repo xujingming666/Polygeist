@@ -11,6 +11,7 @@
 
 #include "mlir/IR/Builders.h"
 #include "llvm/ADT/ArrayRef.h"
+#include "llvm/Support/FileSystem.h"
 
 namespace mlir {
 class Operation;
@@ -47,6 +48,15 @@ replaceFuncByOperation(mlir::func::FuncOp f, llvm::StringRef opName,
                        llvm::SmallVectorImpl<mlir::Value> &output);
 mlir::Value castInteger(mlir::OpBuilder &, mlir::Location &, mlir::Value,
                         mlir::Type);
+
+struct FileCleanup {
+  FileCleanup(const std::string &file) : file(file) {}
+  ~FileCleanup() {
+    llvm::sys::fs::remove(file);
+  }
+  std::string file;
+};
+
 } // namespace mlirclang
 
 #endif
