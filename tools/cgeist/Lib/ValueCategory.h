@@ -11,6 +11,7 @@
 
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Value.h"
+#include "clang/AST/StmtVisitor.h"
 
 // Represents a rhs or lhs value.
 class ValueCategory {
@@ -18,10 +19,12 @@ public:
   mlir::Value val;
   bool isReference;
   mlir::Type ptrType;
+  clang::ValueDecl *decl;
 
 public:
-  ValueCategory() : val(nullptr), isReference(false), ptrType(nullptr) {};
-  ValueCategory(std::nullptr_t) : val(nullptr), isReference(false), ptrType(nullptr) {};
+  ValueCategory() : val(nullptr), isReference(false), ptrType(nullptr), decl(nullptr) {};
+  ValueCategory(std::nullptr_t) : val(nullptr), isReference(false), ptrType(nullptr), decl(nullptr) {};
+
   ValueCategory(mlir::Value val, bool isReference);
   ValueCategory(mlir::Value val, bool isReference, mlir::Type type) : ValueCategory(val, isReference)  { ptrType = type; }
 
@@ -33,6 +36,10 @@ public:
   void store(mlir::Location loc, mlir::OpBuilder &builder,
              mlir::Value toStore) const;
   ValueCategory dereference(mlir::Location loc, mlir::OpBuilder &builder) const;
+  bool isTensorValue();
+  
+  void setDecl(clang::ValueDecl *decl) { this->decl = decl; }
+  clang::ValueDecl *getDecl() { return this->decl; }
 };
 
 #endif

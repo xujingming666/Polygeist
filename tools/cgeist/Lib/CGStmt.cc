@@ -12,6 +12,7 @@
 #include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
 #include "mlir/Dialect/OpenMP/OpenMPDialect.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/Diagnostics.h"
 
 #define DEBUG_TYPE "CGStmt"
@@ -866,18 +867,101 @@ ValueCategory MLIRScanner::VisitIfStmt(clang::IfStmt *stmt) {
         loc, CmpIPredicate::ne, cond,
         builder.create<ConstantIntOp>(loc, 0, prevTy));
   }
+
   bool hasElseRegion = stmt->getElse();
   auto ifOp = builder.create<mlir::scf::IfOp>(loc, cond, hasElseRegion);
 
+  std::map<const clang::ValueDecl *, ValueCategory> ifYieldParams, elseYieldParams;
+  
   ifOp.getThenRegion().back().clear();
   builder.setInsertionPointToStart(&ifOp.getThenRegion().back());
   Visit(stmt->getThen());
   builder.create<scf::YieldOp>(loc);
+  ifYieldParams = scope.yieldParams;
+  scope.yieldParams.clear();
+  scope.localParams.clear();
   if (hasElseRegion) {
     ifOp.getElseRegion().back().clear();
     builder.setInsertionPointToStart(&ifOp.getElseRegion().back());
     Visit(stmt->getElse());
     builder.create<scf::YieldOp>(loc);
+    elseYieldParams = scope.yieldParams;
+    scope.yieldParams.clear();
+    scope.localParams.clear();
+  }
+
+  std::set<const clang::ValueDecl *> decls;
+  for (auto it : ifYieldParams) {
+    decls.insert(it.first);
+  }
+  for (auto it : elseYieldParams) {
+    decls.insert(it.first);
+  }
+
+  if (!ifYieldParams.empty() || !elseYieldParams.empty()) {
+    llvm::SmallVector<mlir::Type, 4> types;
+    for (auto decl : decls) {
+      if (ifYieldParams.count(decl) > 0)
+        types.push_back(ifYieldParams[decl].getValue(loc, builder).getType());
+      else {
+        types.push_back(elseYieldParams[decl].getValue(loc, builder).getType());
+      }
+    }
+
+    builder.setInsertionPointAfter(ifOp);
+    auto newIfOp = builder.create<scf::IfOp>(loc, types, ifOp.getCondition(), /*hasElse*/ true);
+    mlir::IRMapping ifMapping;
+    ifOp.getThenRegion().cloneInto(&(newIfOp.getThenRegion()), newIfOp.getThenRegion().begin(), ifMapping);
+    newIfOp.getThenRegion().getBlocks().erase(newIfOp.getThenRegion().back());
+    {
+      mlir::Operation &yieldOperation = newIfOp.getThenRegion().begin()->back();
+      assert(isa<scf::YieldOp>(&yieldOperation) && " last op should be YieldOp \n");
+      builder.setInsertionPointAfter(&yieldOperation);
+      llvm::SmallVector<mlir::Value, 4> yieldValues;
+      for (auto it : llvm::enumerate(decls)) {
+        if (ifYieldParams.count(it.value()) > 0) {
+          mlir::Value value = ifYieldParams[it.value()].getValue(loc, builder);
+          mlir::Value mappedValue = ifMapping.lookup(value);
+          yieldValues.push_back(mappedValue);
+        } else {
+          mlir::RankedTensorType type = dyn_cast<mlir::RankedTensorType>(elseYieldParams[it.value()].getValue(loc, builder).getType());
+          llvm::SmallVector<mlir::Value, 4> dynamicValues = scope.getDynamicValues(loc, builder, type);
+          yieldValues.push_back(builder.create<mlir::tensor::EmptyOp>(loc, type, dynamicValues));
+        }
+      }
+      builder.create<scf::YieldOp>(loc, yieldValues);
+      yieldOperation.erase();
+    }
+    
+    mlir::IRMapping elseMapping;
+    ifOp.getElseRegion().cloneInto(&(newIfOp.getElseRegion()), newIfOp.getElseRegion().begin(), elseMapping);
+    newIfOp.getElseRegion().getBlocks().erase(newIfOp.getElseRegion().back());
+    {
+      mlir::Operation &yieldOperation = newIfOp.getElseRegion().begin()->back();
+      assert(isa<scf::YieldOp>(&yieldOperation) && " last op should be YieldOp \n");
+      builder.setInsertionPointAfter(&yieldOperation);
+      llvm::SmallVector<mlir::Value, 4> yieldValues;
+      for (auto it : llvm::enumerate(decls)) {
+        if (elseYieldParams.count(it.value()) > 0) {
+          mlir::Value value = elseYieldParams[it.value()].getValue(loc, builder);
+          mlir::Value mappedValue = elseMapping.lookup(value);
+          yieldValues.push_back(mappedValue);
+        } else {
+          mlir::RankedTensorType type = dyn_cast<mlir::RankedTensorType>(ifYieldParams[it.value()].getValue(loc, builder).getType());
+          llvm::SmallVector<mlir::Value, 4> dynamicValues = scope.getDynamicValues(loc, builder, type);
+          yieldValues.push_back(builder.create<mlir::tensor::EmptyOp>(loc, type, dynamicValues));
+        }
+      }
+      builder.create<scf::YieldOp>(loc, yieldValues);
+      yieldOperation.erase();
+    }
+    
+    scope.localParams.clear();
+    scope.yieldParams.clear();
+    for (auto it : llvm::enumerate(decls)) {
+      scope.yieldParams[it.value()] = ValueCategory(newIfOp.getResults()[it.index()], true);
+    }
+    ifOp.erase();
   }
 
   builder.setInsertionPoint(oldblock, oldpoint);

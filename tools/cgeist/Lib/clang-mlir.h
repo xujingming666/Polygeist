@@ -11,6 +11,7 @@
 
 #include "AffineUtils.h"
 #include "ValueCategory.h"
+#include "IfScope.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
@@ -219,6 +220,8 @@ private:
 public:
   const FunctionDecl *EmittingFunctionDecl;
   std::map<const ValueDecl *, ValueCategory> params;
+  std::vector<IfScope *> ifScopeStacks;
+  llvm::MapVector<const clang::ValueDecl *, const clang::ValueDecl *>  argsAliasMap;
   llvm::DenseMap<const ValueDecl *, FieldDecl *> Captures;
   llvm::DenseMap<const ValueDecl *, LambdaCaptureKind> CaptureKinds;
   FieldDecl *ThisCapture;
@@ -240,6 +243,61 @@ public:
   mlir::OpBuilder &getBuilder();
 
   mlir::Value getConstantIndex(int x);
+
+  // check if decl is local defined variable
+  bool isLocalDecl(const ValueDecl *decl) {
+    if (ifScopeStacks.size() > 0) {
+      return ifScopeStacks.back()->localParams.count(decl) > 0;
+    }
+    return params.count(decl) > 0;
+  }
+
+  // update Local define variable value if it is modified.
+  void updateLocalDecl(const ValueDecl *decl, ValueCategory value) {
+    ifScopeStacks.back()->yieldParams[decl] = value;
+  }
+  
+  ValueCategory getLocalValue(const ValueDecl *decl) {
+    for(int i = 0; i < ifScopeStacks.size(); i++) {
+      if (ifScopeStacks[ifScopeStacks.size() - 1 - i]->localParams.count(decl) > 0) {
+        return ifScopeStacks[ifScopeStacks.size() - 1 - i]->localParams[decl];
+      }
+    }
+    return params[decl];
+  }
+
+  ValueCategory getBlockArgsInitValues(const ValueDecl *decl) {
+    for(int i = 0; i < ifScopeStacks.size() - 1; i++) {
+      if (ifScopeStacks[ifScopeStacks.size() - 2 - i]->localParams.count(decl) > 0) {
+        return ifScopeStacks[ifScopeStacks.size() - 2 - i]->localParams[decl];
+      }
+    }
+    if (ifScopeStacks.size() > 0) {
+      return params[decl];
+    }
+
+    return ValueCategory();
+  }
+
+  bool shouldVisit(clang::Stmt* stmt) {
+    if (!stmt) return false;
+    if (isa<clang::Expr>(stmt))
+      if (dyn_cast<clang::Expr>(stmt)->containsErrors())
+        return false;
+    if (isa<clang::DeclStmt>(stmt))
+      for (const auto *DI : dyn_cast<clang::DeclStmt>(stmt)->decls())
+        if (DI->isInvalidDecl())
+          return false;
+
+    return true;
+  }
+
+  ValueDecl * getRelVarDecl(clang::Expr *expr);
+
+  ValueCategory Visit(clang::Stmt* stmt) {
+    if (!shouldVisit(stmt)) return ValueCategory();
+    return StmtVisitor<MLIRScanner, ValueCategory>::Visit(stmt);
+  }
 
   ValueCategory createComplexFloat(mlir::Location loc, mlir::Value real,
                                    mlir::Value imag, clang::QualType cty);
@@ -300,6 +358,8 @@ public:
   ValueCategory VisitArraySubscriptExpr(clang::ArraySubscriptExpr *expr);
 
   ValueCategory VisitCallExpr(clang::CallExpr *expr);
+  
+  ValueCategory VisitCXXOperatorCallExpr(clang::CXXOperatorCallExpr *expr);
 
   ValueCategory
   CallHelper(mlir::func::FuncOp tocall, QualType objType,
@@ -312,6 +372,8 @@ public:
   std::pair<ValueCategory, bool> EmitGPUCallExpr(clang::CallExpr *expr);
 
   std::pair<ValueCategory, bool> EmitBuiltinOps(clang::CallExpr *expr);
+
+  std::pair<ValueCategory, bool> EmitTensorCallOps(clang::CallExpr *expr);
 
   ValueCategory
   VisitCXXScalarValueInitExpr(clang::CXXScalarValueInitExpr *expr);
@@ -339,6 +401,8 @@ public:
   VisitUnaryExprOrTypeTraitExpr(clang::UnaryExprOrTypeTraitExpr *Uop);
 
   ValueCategory VisitBinaryOperator(clang::BinaryOperator *BO);
+  
+  ValueCategory VisitTensorBinaryOperator(clang::BinaryOperator *BO);
 
   ValueCategory VisitCXXNoexceptExpr(clang::CXXNoexceptExpr *AS);
 
