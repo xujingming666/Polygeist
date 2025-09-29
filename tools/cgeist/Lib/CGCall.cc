@@ -603,7 +603,11 @@ ValueCategory MLIRScanner::VisitCallExpr(clang::CallExpr *expr) {
     }
   */
 
-  auto valEmitted = EmitGPUCallExpr(expr);
+  auto valEmitted = EmitTensorCallOps(expr);
+  if (valEmitted.second)
+    return valEmitted.first;
+
+  valEmitted = EmitGPUCallExpr(expr);
   if (valEmitted.second)
     return valEmitted.first;
 
@@ -616,6 +620,11 @@ ValueCategory MLIRScanner::VisitCallExpr(clang::CallExpr *expr) {
     return valEmitted.first;
 
   if (auto *oc = dyn_cast<CXXOperatorCallExpr>(expr)) {
+    auto retType = getMLIRType(expr->getType());
+    if (isa<mlir::RankedTensorType>(retType)) {
+      return VisitCXXOperatorCallExpr(oc);
+    }
+
     if (oc->getOperator() == clang::OO_EqualEqual) {
       if (auto *lhs = dyn_cast<CXXTypeidExpr>(expr->getArg(0))) {
         if (auto *rhs = dyn_cast<CXXTypeidExpr>(expr->getArg(1))) {

@@ -10,6 +10,7 @@
 
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/Dialect/Tensor/IR/Tensor.h"
 
 using namespace mlir;
 
@@ -18,24 +19,90 @@ IfScope::IfScope(MLIRScanner &scanner) : scanner(scanner), prevBlock(nullptr) {
     auto loc = scanner.builder.getUnknownLoc();
     auto lop = scanner.builder.create<memref::LoadOp>(
         loc, scanner.loops.back().keepRunning);
-    auto ifOp = scanner.builder.create<scf::IfOp>(loc, lop,
+    ifOp = scanner.builder.create<scf::IfOp>(loc, lop,
                                                   /*hasElse*/ false);
     prevBlock = scanner.builder.getInsertionBlock();
     prevIterator = scanner.builder.getInsertionPoint();
     ifOp.getThenRegion().back().clear();
     scanner.builder.setInsertionPointToStart(&ifOp.getThenRegion().back());
-    auto er = scanner.builder.create<scf::ExecuteRegionOp>(
+    er = scanner.builder.create<scf::ExecuteRegionOp>(
         loc, ArrayRef<mlir::Type>());
     scanner.builder.create<scf::YieldOp>(loc);
     er.getRegion().push_back(new Block());
     scanner.builder.setInsertionPointToStart(&er.getRegion().back());
   }
+  scanner.ifScopeStacks.push_back(this);
+}
+
+llvm::SmallVector<mlir::Value, 4> IfScope::getDynamicValues(mlir::Location &loc, mlir::OpBuilder & builder, mlir::RankedTensorType type) {
+  llvm::SmallVector<mlir::Value, 4> dynamicValues;
+  for (int64_t shape : type.getShape()) {
+    if (shape == ShapedType::kDynamic) {
+      dynamicValues.push_back(
+        builder.create<arith::ConstantOp>(loc, builder.getIntegerAttr(builder.getI32Type(), 0))
+      );
+    }
+  }
+  return dynamicValues;
 }
 
 IfScope::~IfScope() {
+  mlir::OpBuilder &builder = scanner.builder;
+  auto loc = builder.getUnknownLoc();
   if (scanner.loops.size() && scanner.loops.back().keepRunning) {
-    auto loc = scanner.builder.getUnknownLoc();
-    scanner.builder.create<scf::YieldOp>(loc);
+    if (yieldParams.size() > 0) {
+      llvm::SmallVector<mlir::Type> types;
+      llvm::SmallVector<mlir::Value> yiledValues;
+      for (auto it : yieldParams) {
+        auto yieldValue = it.second.getValue(loc, builder);
+        types.push_back(yieldValue.getType());
+        yiledValues.push_back(yieldValue);
+      }
+      builder.create<scf::YieldOp>(loc, yiledValues);
+
+      OpBuilder::InsertionGuard guard(builder);
+      builder.setInsertionPointAfter(ifOp);
+      auto newIfOp = scanner.builder.create<scf::IfOp>(loc, types, ifOp.getCondition(),
+                                                  /*hasElse*/ true);
+      newIfOp.getThenRegion().back().clear();
+      builder.setInsertionPointToStart(&newIfOp.getThenRegion().back());
+      auto newer = builder.create<scf::ExecuteRegionOp>(loc, types);
+      mlir::IRMapping mapping;
+      er.getRegion().cloneInto(&(newer.getRegion()), newer.getRegion().begin(), mapping);
+      auto thenYieldOp = builder.create<scf::YieldOp>(loc, newer.getResults());
+
+      newIfOp.getElseRegion().back().clear();
+      builder.setInsertionPointToStart(&newIfOp.getElseRegion().back());
+
+      llvm::SmallVector<mlir::Value, 4> retValues;
+      for (auto result : newer.getResults()) {
+        mlir::RankedTensorType type = dyn_cast<mlir::RankedTensorType>(result.getType());
+        llvm::SmallVector<mlir::Value, 4> dynamicValues = getDynamicValues(loc, builder, type);
+        retValues.push_back(builder.create<tensor::EmptyOp>(loc, type, dynamicValues));
+      }
+      builder.create<scf::YieldOp>(loc, retValues);
+
+      for (auto it : llvm::enumerate(yieldParams)) {
+        auto decl = it.value().first;
+        auto newValue = newIfOp.getResults()[it.index()];
+
+        if (scanner.ifScopeStacks.size() > 1) {
+          if (scanner.ifScopeStacks[scanner.ifScopeStacks.size() - 2]->localParams.count(decl) > 0)
+            scanner.ifScopeStacks[scanner.ifScopeStacks.size() - 2]->localParams[decl] = ValueCategory(newValue, true);
+          else
+            scanner.ifScopeStacks[scanner.ifScopeStacks.size() - 2]->yieldParams[decl] = ValueCategory(newValue, true);
+        } else
+          scanner.params[decl] = ValueCategory(newValue, true);
+      }
+      ifOp->erase();
+    } else {
+      builder.create<scf::YieldOp>(loc);
+    }
     scanner.builder.setInsertionPoint(prevBlock, prevIterator);
   }
+
+  localParams.clear();
+  yieldParams.clear();
+
+  scanner.ifScopeStacks.pop_back();
 }

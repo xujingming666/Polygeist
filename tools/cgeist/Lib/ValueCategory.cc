@@ -19,15 +19,17 @@ using namespace mlir;
 using namespace mlir::arith;
 
 ValueCategory::ValueCategory(mlir::Value val, bool isReference)
-    : val(val), isReference(isReference) {
+    : val(val), isReference(isReference), decl(nullptr) {
   assert(val && "null value");
   if (isReference) {
     if (!(val.getType().isa<MemRefType>() ||
-          val.getType().isa<LLVM::LLVMPointerType>())) {
+          val.getType().isa<LLVM::LLVMPointerType>() ||
+          val.getType().isa<mlir::RankedTensorType>())) {
       llvm::errs() << "val: " << val << "\n";
     }
     assert((val.getType().isa<MemRefType>() ||
-            val.getType().isa<LLVM::LLVMPointerType>()) &&
+            val.getType().isa<LLVM::LLVMPointerType>() ||
+            val.getType().isa<mlir::RankedTensorType>()) &&
            "Reference value must have pointer/memref type");
   }
 }
@@ -46,7 +48,16 @@ mlir::Value ValueCategory::getValue(mlir::Location loc,
     return builder.create<memref::LoadOp>(loc, val,
                                           std::vector<mlir::Value>({c0}));
   }
+  if (auto mt = dyn_cast<mlir::RankedTensorType>(val.getType())) {
+    return val;
+  }
   llvm_unreachable("type must be LLVMPointer or MemRef");
+}
+
+bool ValueCategory::isTensorValue() {
+  if (auto mt = dyn_cast<mlir::RankedTensorType>(val.getType()))
+    return true;
+  return false;
 }
 
 void ValueCategory::store(mlir::Location loc, mlir::OpBuilder &builder,

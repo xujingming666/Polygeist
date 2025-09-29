@@ -8,7 +8,12 @@
 #ifndef IF_SCOPE_H_
 #define IF_SCOPE_H_
 
+#include "ValueCategory.h"
+
 #include "mlir/IR/Block.h"
+#include "clang/AST/ASTConsumer.h"
+#include "clang/AST/StmtVisitor.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 
 class MLIRScanner;
 
@@ -17,6 +22,14 @@ public:
   MLIRScanner &scanner;
   mlir::Block *prevBlock;
   mlir::Block::iterator prevIterator;
+  mlir::scf::IfOp  ifOp;
+  mlir::scf::ExecuteRegionOp er;
+  std::map<const clang::ValueDecl *, ValueCategory> localParams;
+  std::map<const clang::ValueDecl *, ValueCategory> yieldParams;
+
+  bool isLocal(const clang::ValueDecl *decl) { return localParams.count(decl) > 0; }
+
+  llvm::SmallVector<mlir::Value, 4> getDynamicValues(mlir::Location &loc, mlir::OpBuilder & builder, mlir::RankedTensorType type);
   IfScope(MLIRScanner &scanner);
   ~IfScope();
 };

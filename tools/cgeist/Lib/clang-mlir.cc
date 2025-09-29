@@ -68,6 +68,77 @@ static cl::opt<bool>
     CombinedStructABI("struct-abi", cl::init(true),
                       cl::desc("Use literal LLVM ABI for structs"));
 
+static std::string getNSName(const clang::DeclContext *ctx) {
+  SmallVector<StringRef, 4> nss;
+  auto p = ctx;
+  while(p) {
+    if (auto ns = dyn_cast<clang::NamespaceDecl>(p)) {
+      nss.push_back(ns->getName());
+    } else if (auto ns = dyn_cast<clang::RecordDecl>(p)) {
+      nss.push_back(ns->getName());
+    }
+    p = p->getParent();
+  }
+  std::stringstream ss;
+  for (auto it = nss.rbegin(); it != nss.rend(); ++it) {
+    ss << "::";
+    ss << it->str();
+  }
+  if (nss.empty())
+    ss << "::";
+  return ss.str();
+}
+
+static bool isTensorType(const clang::RecordType & type) {
+  auto ns = getNSName(type.getDecl()->getParent());
+  return ns == "::" && (type.getDecl()->getName() == "SL_TENSOR" || 
+                        type.getDecl()->getName() == "SL_TENSOR_UM");
+}
+
+static bool isVectorType(const clang::RecordType & type) {
+  auto ns = getNSName(type.getDecl()->getParent());
+  return ns == "::" && (type.getDecl()->getName() == "SL_VECTOR");
+}
+
+static int getTensorMemorySpace(const clang::RecordType & type){
+  if (type.getDecl()->getName() == "SL_TENSOR")
+    return 1;
+  return 0;
+}
+
+static bool isMlirTensorType(const mlir::Type type) {
+  return isa<mlir::RankedTensorType>(type);
+}
+
+const clang::FunctionDecl *getCallee(const clang::Expr *E) {
+  E = E->IgnoreParens();
+  // Look through function-to-pointer decay.
+  if (auto ICE = dyn_cast<clang::ImplicitCastExpr>(E)) {
+    if (ICE->getCastKind() == clang::CK_FunctionToPointerDecay ||
+        ICE->getCastKind() == clang::CK_BuiltinFnToFnPtr) {
+      return getCallee(ICE->getSubExpr());
+    }
+
+    // Resolve direct calls.
+  } else if (auto DRE = dyn_cast<clang::DeclRefExpr>(E)) {
+    if (auto FD = dyn_cast<clang::FunctionDecl>(DRE->getDecl())) {
+      return FD;
+    }
+
+  } else if (auto ME = dyn_cast<clang::MemberExpr>(E)) {
+    if (auto FD = dyn_cast<clang::FunctionDecl>(ME->getMemberDecl())) {
+      // TODO EmitIgnoredExpr(ME->getBase());
+      return FD;
+    }
+
+    // Look through template substitutions.
+  } else if (auto NTTP = dyn_cast<clang::SubstNonTypeTemplateParmExpr>(E)) {
+    return getCallee(NTTP->getReplacement());
+  }
+
+  return nullptr;  
+}
+
 ValueCategory MLIRScanner::createComplexFloat(mlir::Location loc,
                                               mlir::Value real,
                                               mlir::Value imag,
@@ -252,6 +323,7 @@ void MLIRScanner::init(mlir::func::FuncOp function, const FunctionDecl *fd) {
     }
   }
 
+  llvm::SmallVector<clang::ParmVarDecl *> outputArgs;
   for (auto parm : fd->parameters()) {
     assert(i != function.getNumArguments());
     // function.getArgument(i).setName(name);
@@ -277,6 +349,9 @@ void MLIRScanner::init(mlir::func::FuncOp function, const FunctionDecl *fd) {
                                  /*LLVMABI*/ LLVMABI);
       ValueCategory(alloc, /*isReference*/ true)
           .store(getMLIRLocation(parm->getBeginLoc()), builder, val);
+    }
+    if (function.getArgAttr(i, "output")) {
+      outputArgs.push_back(parm);
     }
     i++;
   }
@@ -398,7 +473,7 @@ void MLIRScanner::init(mlir::func::FuncOp function, const FunctionDecl *fd) {
                    builder.create<mlir::memref::AllocaOp>(loc, type)});
   builder.create<mlir::memref::StoreOp>(loc, truev, loops.back().noBreak);
   builder.create<mlir::memref::StoreOp>(loc, truev, loops.back().keepRunning);
-  if (function.getFunctionType().getResults().size()) {
+  if (function.getFunctionType().getResults().size() > outputArgs.size()) {
     auto type = mlir::MemRefType::get(
         {}, function.getFunctionType().getResult(0), {}, 0);
     returnVal = builder.create<mlir::memref::AllocaOp>(loc, type);
@@ -461,9 +536,38 @@ void MLIRScanner::init(mlir::func::FuncOp function, const FunctionDecl *fd) {
   }
 
   if (function.getFunctionType().getResults().size()) {
-    mlir::Value vals[1] = {
+    llvm::SmallVector<mlir::Value> retValues;
+
+    int idxOffset = 0;
+    if (function.getFunctionType().getResults().size() > outputArgs.size()) {
+      mlir::Value vals[1] = {
         builder.create<mlir::memref::LoadOp>(loc, returnVal)};
-    builder.create<func::ReturnOp>(loc, vals);
+      retValues.push_back(vals[0]);
+      idxOffset = 1;
+    }
+    
+    int i = 0;
+    for (auto arg : outputArgs) {
+      mlir::Value retValue;
+      mlir::Type retType = function.getFunctionType().getResults()[i+idxOffset];
+      if (argsAliasMap[arg]) {
+        retValue = params[argsAliasMap[arg]].getValue(loc, builder);
+      } else {
+        retValue = params[arg].getValue(loc, builder);
+      }
+      
+      if (auto tensorType = dyn_cast<mlir::RankedTensorType>(retValue.getType())) {
+        auto memrefType = MemRefType::get(tensorType.getShape(), tensorType.getElementType());
+        retValue = builder.create<bufferization::ToMemrefOp>(loc, memrefType, retValue);
+        retValue = builder.create<memref::CastOp>(loc, retType, retValue);
+      } else if (retValue.getType() != function.getFunctionType().getResults()[i+idxOffset]) {
+        retValue = builder.create<memref::CastOp>(loc, retType, retValue);
+      }
+      retValues.push_back(retValue);
+      i++;
+    }
+    
+    builder.create<func::ReturnOp>(loc, retValues);
   } else
     builder.create<func::ReturnOp>(loc);
 
@@ -965,6 +1069,13 @@ ValueCategory MLIRScanner::VisitVarDecl(clang::VarDecl *decl) {
         decl->dump();
         assert(visit.val);
       }
+
+      if (visit.isTensorValue()) {
+        updateLocalDecl(decl, visit);
+        argsAliasMap[visit.getDecl()] = decl;
+        return visit;
+      }
+
       bool isReference = init->isLValue() || init->isXValue();
       if (isReference) {
         assert(visit.isReference);
@@ -1002,6 +1113,21 @@ ValueCategory MLIRScanner::VisitVarDecl(clang::VarDecl *decl) {
       subType = Glob.typeTranslator.translateType(T);
       LLVMABI = true;
     }
+  }
+
+  if (isMlirTensorType(subType)) {
+    if (auto init = decl->getInit()) {
+      if (isa<InitListExpr>(init)) {
+        llvm_unreachable("tensor InitListExpr not suppoted now \n");
+      } else if (auto CE = dyn_cast<CXXConstructExpr>(init)) {
+        auto visit = Visit(CE);
+        updateLocalDecl(decl, visit);
+        argsAliasMap[visit.getDecl()] = decl;
+        return visit;
+      } else
+        llvm_unreachable("unknown init list");
+    } else 
+      llvm_unreachable("tensor expr do not have init expr \n");
   }
 
   mlir::Value op;
@@ -1561,10 +1687,27 @@ ValueCategory MLIRScanner::VisitConstructCommon(clang::CXXConstructExpr *cons,
     subType = ptrty;
     isArray = true;
   }
+
+  auto decl = cons->getConstructor();
+  if (isa<mlir::RankedTensorType>(subType)) {
+
+    if (decl->isTrivial() && decl->isDefaultConstructor()) {
+      assert(false && " default constructor withoud parameters is not supported \n ");
+    }
+    
+    unsigned typeQuals = 0;
+    if (decl->isTrivial() && decl->isCopyConstructor(typeQuals))
+      return Visit(cons->getArg(0));
+    llvm::SmallVector<mlir::Value, 4> args;
+    for (auto a : cons->arguments())
+      args.push_back(Visit(a).getValue(loc, builder));
+    mlir::Value vectorValue = builder.create<tensor::FromElementsOp>(loc, args);
+    return ValueCategory(vectorValue, /*isReference*/ true);
+  }
+
   if (op == nullptr)
     op = createAllocOp(subType, name, memtype, isArray, LLVMABI);
 
-  auto decl = cons->getConstructor();
   if (cons->requiresZeroInitialization()) {
     mlir::Value val = op;
     if (val.getType().isa<MemRefType>()) {
@@ -1861,6 +2004,87 @@ MLIRScanner::EmitBuiltinOps(clang::CallExpr *expr) {
             true);
       }
     }
+  }
+
+  return make_pair(ValueCategory(), false);
+}
+
+ValueDecl * MLIRScanner::getRelVarDecl(clang::Expr *expr) {
+  for (clang::Stmt* child : expr->children()) {
+    if (auto declRef = dyn_cast<clang::DeclRefExpr>(child)) {
+      return declRef->getDecl();
+    }
+    if (isa<clang::Expr>(child))
+      return getRelVarDecl(dyn_cast<clang::Expr>(child));
+  }
+  return nullptr;
+}
+
+std::pair<ValueCategory, bool>
+MLIRScanner::EmitTensorCallOps(clang::CallExpr *expr) {
+  auto loc = getMLIRLocation(expr->getExprLoc());
+  auto fd = getCallee(expr->getCallee());
+
+  if (!fd) {
+    emitError(loc) << "cannot find function \n";
+    return make_pair(ValueCategory(), true);
+  }
+
+  if (fd->getName() == "to_tensor") {
+    llvm::SmallVector<mlir::Value, 4> argValues;
+    for (clang::Expr *argExpr : llvm::ArrayRef<clang::Expr *>(expr->getArgs(), expr->getNumArgs())) {
+      argValues.push_back(
+        Visit(argExpr).getValue(loc, builder));
+    }
+
+    auto memrefType = dyn_cast<mlir::MemRefType>(argValues[0].getType());
+    if (memrefType) {
+      int dim = memrefType.getShape().size();
+      std::vector<int64_t> shape(dim, ShapedType::kDynamic);
+      auto tensorType = RankedTensorType::get(shape, memrefType.getElementType());
+      argValues[0] = builder.create<mlir::bufferization::ToTensorOp>(loc, tensorType, argValues[0], true, true);
+    }
+
+    int dim = dyn_cast<mlir::RankedTensorType>(argValues[1].getType()).getShape()[0];
+    std::vector<int64_t> shape(dim, ShapedType::kDynamic);
+    auto tensorType = RankedTensorType::get(shape, memrefType.getElementType());
+    mlir::Value reshapeTensor = builder.create<mlir::tensor::ReshapeOp>(loc, tensorType, argValues[0], argValues[1]);
+    
+    auto retValue = ValueCategory(reshapeTensor, true);
+
+    auto funcArg = expr->getArgs()[0];
+    if (auto refDecl = getRelVarDecl(funcArg)) {
+      retValue.setDecl(refDecl);
+    }
+    // reference value would not trigger alloc.
+    return make_pair(retValue, true);
+  }
+
+  if (fd->getName() == "mac_add") {
+    llvm::SmallVector<mlir::Value, 4> argValues;
+    for (clang::Expr *argExpr : llvm::ArrayRef<clang::Expr *>(expr->getArgs(), expr->getNumArgs())) {
+      argValues.push_back(
+        Visit(argExpr).getValue(loc, builder));
+    }
+    auto lhsType = dyn_cast<mlir::RankedTensorType>(argValues[0].getType());
+    auto lhsShape = lhsType.getShape();
+    auto elementType = lhsType.getElementType();
+
+    llvm::SmallVector<mlir::Value> dynamicShapes;
+    for (auto it : llvm::enumerate(lhsShape)) {
+      if (it.value() == ShapedType::kDynamic) {
+        auto mValue = builder.create<tensor::DimOp>(loc, argValues[0], it.index());
+        dynamicShapes.push_back(mValue);
+      }
+    }
+    auto allocTensor = builder.create<tensor::EmptyOp>(loc, 
+                        lhsShape, elementType, dynamicShapes);
+    auto matmul_result = builder.create<linalg::ElemwiseBinaryOp>(loc, TypeRange{lhsType},
+                                    ValueRange{argValues[0], argValues[1]}, ValueRange{allocTensor},
+                                    linalg::BinaryFnAttr::get(builder.getContext(), linalg::BinaryFn::add),
+                                    linalg::TypeFnAttr::get(builder.getContext(), linalg::TypeFn::cast_signed));
+
+    return make_pair(ValueCategory(matmul_result.getResults()[0], true), true);
   }
 
   return make_pair(ValueCategory(), false);
@@ -2560,8 +2784,63 @@ ValueCategory MLIRScanner::VisitAtomicExpr(clang::AtomicExpr *BO) {
   }
 }
 
+ValueCategory MLIRScanner::VisitTensorBinaryOperator(clang::BinaryOperator *BO) {
+
+  auto loc = getMLIRLocation(BO->getExprLoc());
+
+  auto lhs = Visit(BO->getLHS());
+  auto rhs = Visit(BO->getRHS());
+
+  mlir::Value lhsValue = lhs.getValue(loc, builder);
+  mlir::Value rhsValue = rhs.getValue(loc, builder);
+
+  switch (BO->getOpcode()) {
+    case clang::BinaryOperator::Opcode::BO_Assign: {
+      
+    }
+    default:{
+      BO->dump();
+      llvm_unreachable("unhandled opcode");
+    }
+  }
+  return ValueCategory();
+}
+
+ValueCategory MLIRScanner::VisitCXXOperatorCallExpr(clang::CXXOperatorCallExpr *BO) {
+  auto loc = getMLIRLocation(BO->getExprLoc());
+  auto retType = getMLIRType(BO->getType());
+
+  if (BO->getNumArgs() == 2) {
+    auto lhs = Visit(BO->getArgs()[0]);
+    auto rhs = Visit(BO->getArgs()[1]);
+    mlir::Value lhsValue = lhs.getValue(loc, builder);
+    mlir::Value rhsValue = rhs.getValue(loc, builder);
+
+    if (BO->getOperator() == clang::OverloadedOperatorKind::OO_Equal) {
+      if (auto lhsVarRef = dyn_cast<clang::DeclRefExpr>(BO->getArgs()[0])) {
+        if (!isLocalDecl(lhsVarRef->getDecl())) {
+          ifScopeStacks.back()->yieldParams[lhsVarRef->getDecl()] = ValueCategory(rhsValue, true);
+        }
+        if (ifScopeStacks.size()) {
+          ifScopeStacks.back()->localParams[lhsVarRef->getDecl()] = ValueCategory(rhsValue, true);
+        } else
+          params[lhsVarRef->getDecl()] = ValueCategory(rhsValue, true); 
+      }
+      return ValueCategory(rhsValue, true);
+    }
+  }
+
+  BO->dump();
+  llvm_unreachable("unhandled CXXOperatorCallExpr \n");
+}
+
 ValueCategory MLIRScanner::VisitBinaryOperator(clang::BinaryOperator *BO) {
   auto loc = getMLIRLocation(BO->getExprLoc());
+  auto retType = getMLIRType(BO->getType());
+
+  if (isa<mlir::RankedTensorType>(retType)) {
+    return VisitTensorBinaryOperator(BO);
+  }
 
   auto fixInteger = [&](mlir::Value res, bool forceUnsigned = false) {
     auto prevTy = res.getType().cast<mlir::IntegerType>();
@@ -3422,6 +3701,13 @@ ValueCategory MLIRScanner::VisitDeclRefExpr(DeclRefExpr *E) {
   }
 
   if (auto PD = dyn_cast<VarDecl>(E->getDecl())) {
+    auto ty = getMLIRType(E->getType());
+    if (isa<mlir::RankedTensorType>(ty)) {
+      auto res = getLocalValue(PD);
+      assert(res.val);
+      return res;
+    }
+
     auto found = params.find(PD);
     if (found != params.end()) {
       auto res = found->second;
@@ -5129,6 +5415,8 @@ MLIRASTConsumer::GetOrCreateMLIRFunction(const FunctionDecl *FD,
       names.push_back("this");
     }
   }
+
+  SmallVector<bool, 4> outputFlags;
   for (auto parm : FD->parameters()) {
     bool llvmType = name == "main" && types.size() == 1;
     if (auto ava = parm->getAttr<AlignValueAttr>()) {
@@ -5157,6 +5445,8 @@ MLIRASTConsumer::GetOrCreateMLIRFunction(const FunctionDecl *FD,
       types.push_back(t);
     }
     names.push_back(parm->getName().str());
+    outputFlags.push_back(parm->hasAttr<clang::AnnotateAttr>() &&
+                          parm->getAttr<clang::AnnotateAttr>()->getAnnotation() == "output");
   }
 
   bool isArrayReturn = false;
@@ -5179,6 +5469,13 @@ MLIRASTConsumer::GetOrCreateMLIRFunction(const FunctionDecl *FD,
       rettypes.push_back(rt);
     }
   }
+
+  for (unsigned i = 0; i < outputFlags.size(); ++i) {
+    // set the output attribute if it has
+    if (outputFlags[i])
+      rettypes.push_back(types[i]);
+  }
+
   mlir::OpBuilder builder(module->getContext());
   auto funcType = builder.getFunctionType(types, rettypes);
 
@@ -5203,6 +5500,11 @@ MLIRASTConsumer::GetOrCreateMLIRFunction(const FunctionDecl *FD,
   attrs.set("llvm.linkage",
             mlir::LLVM::LinkageAttr::get(builder.getContext(), lnk));
   function->setAttrs(attrs.getDictionary(builder.getContext()));
+  for (unsigned i=0; i<outputFlags.size(); ++i) {
+    // set the output attribute if it has
+    if (outputFlags[i])
+      function.setArgAttr(i, "output", builder.getUnitAttr());
+  }
 
   functions[name] = function;
   module->push_back(function);
@@ -5245,6 +5547,7 @@ void MLIRASTConsumer::run() {
     MLIRScanner ms(*this, module, LTInfo);
     ms.init(GetOrCreateMLIRFunction(FD), FD);
   }
+  module->dump();
 }
 
 void MLIRASTConsumer::HandleDeclContext(DeclContext *DC) {
@@ -5469,6 +5772,8 @@ static bool isRecursiveStruct(const clang::RecordType *RT) {
 
 mlir::Type MLIRASTConsumer::getMLIRType(clang::QualType qt, bool *implicitRef,
                                         bool allowMerge) {
+  if (qt.isNull())
+      return nullptr;
   if (auto ET = dyn_cast<clang::ElaboratedType>(qt)) {
     return getMLIRType(ET->getNamedType(), implicitRef, allowMerge);
   }
@@ -5546,8 +5851,31 @@ mlir::Type MLIRASTConsumer::getMLIRType(clang::QualType qt, bool *implicitRef,
       RT->dump();
     }
     assert(!RT->getDecl()->isInvalidDecl());
+    if (isTensorType(*RT)) {
+      if (implicitRef)
+        *implicitRef = true;
+      auto TS = dyn_cast<clang::ClassTemplateSpecializationDecl>(RT->getDecl());
+      auto tsArgs = TS->getTemplateArgs().asArray();
+      auto elementTypeMlir = getMLIRType(tsArgs[0].getAsType());
+      OpBuilder builder(module->getContext());
+      return RankedTensorType::get({ShapedType::kDynamic},
+                elementTypeMlir, builder.getI64IntegerAttr(getTensorMemorySpace(*RT)));
+    }
+
+    if (isVectorType(*RT)) {
+      if (implicitRef)
+        *implicitRef = true;
+      auto TS = dyn_cast<clang::ClassTemplateSpecializationDecl>(RT->getDecl());
+      auto tsArgs = TS->getTemplateArgs().asArray();
+      auto elementTypeMlir = getMLIRType(tsArgs[0].getAsType());
+      OpBuilder builder(module->getContext());
+      return RankedTensorType::get({tsArgs.size()},
+                elementTypeMlir, builder.getI64IntegerAttr(0));
+    }
+
     if (typeCache.find(RT) != typeCache.end())
       return typeCache[RT];
+
     llvm::Type *LT = CGM.getTypes().ConvertType(qt);
     if (!isa<llvm::StructType>(LT)) {
       qt->dump();
@@ -5756,6 +6084,11 @@ mlir::Type MLIRASTConsumer::getMLIRType(clang::QualType qt, bool *implicitRef,
                         ? cast<clang::PointerType>(t)->getPointeeType()
                         : cast<clang::ReferenceType>(t)->getPointeeType(),
                     &subRef, /*allowMerge*/ true);
+    if (isa<mlir::RankedTensorType>(subType)) {
+      if (implicitRef)
+        *implicitRef = true;
+      return subType;
+    }
 
     if (!memRefABI)
       return LLVM::LLVMPointerType::get(subType);
