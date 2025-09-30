@@ -924,9 +924,7 @@ ValueCategory MLIRScanner::VisitIfStmt(clang::IfStmt *stmt) {
           mlir::Value mappedValue = ifMapping.lookup(value);
           yieldValues.push_back(mappedValue);
         } else {
-          mlir::RankedTensorType type = dyn_cast<mlir::RankedTensorType>(elseYieldParams[it.value()].getValue(loc, builder).getType());
-          llvm::SmallVector<mlir::Value, 4> dynamicValues = scope.getDynamicValues(loc, builder, type);
-          yieldValues.push_back(builder.create<mlir::tensor::EmptyOp>(loc, type, dynamicValues));
+          yieldValues.push_back(getBlockArgsInitValues(it.value()).getValue(loc, builder));
         }
       }
       builder.create<scf::YieldOp>(loc, yieldValues);
@@ -947,9 +945,7 @@ ValueCategory MLIRScanner::VisitIfStmt(clang::IfStmt *stmt) {
           mlir::Value mappedValue = elseMapping.lookup(value);
           yieldValues.push_back(mappedValue);
         } else {
-          mlir::RankedTensorType type = dyn_cast<mlir::RankedTensorType>(ifYieldParams[it.value()].getValue(loc, builder).getType());
-          llvm::SmallVector<mlir::Value, 4> dynamicValues = scope.getDynamicValues(loc, builder, type);
-          yieldValues.push_back(builder.create<mlir::tensor::EmptyOp>(loc, type, dynamicValues));
+          yieldValues.push_back(getBlockArgsInitValues(it.value()).getValue(loc, builder));
         }
       }
       builder.create<scf::YieldOp>(loc, yieldValues);
