@@ -12,6 +12,12 @@
 #include "mlir/IR/Builders.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/Support/FileSystem.h"
+#include "clang/AST/ASTConsumer.h"
+#include "clang/AST/StmtVisitor.h"
+
+#include <set>
+
+class MLIRASTConsumer;
 
 namespace mlir {
 class Operation;
@@ -58,5 +64,8 @@ struct FileCleanup {
 };
 
 } // namespace mlirclang
+
+
+std::set<const clang::ValueDecl *> getModifyDecls(clang::Stmt *stmts, MLIRASTConsumer &Glob);
 
 #endif

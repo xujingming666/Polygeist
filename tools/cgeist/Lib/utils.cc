@@ -24,10 +24,13 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 
 #include "clang/AST/Expr.h"
+#include "clang/ASTMatchers/ASTMatchFinder.h"
+#include "clang/ASTMatchers/ASTMatchers.h"
 
 using namespace mlir;
 using namespace llvm;
 using namespace clang;
+using namespace clang::ast_matchers;
 
 Operation *buildLinalgOp(StringRef name, OpBuilder &b,
                          SmallVectorImpl<mlir::Value> &input,
@@ -71,4 +74,68 @@ mlir::Value mlirclang::castInteger(mlir::OpBuilder &builder,
     return builder.create<mlir::arith::TruncIOp>(loc, postTy, v);
   else
     return v;
+}
+
+class AssignDeclInfo : public MatchFinder::MatchCallback {
+public:
+  std::set<const clang::ValueDecl *> decls;
+
+  virtual void run(const MatchFinder::MatchResult &Result) {
+    ASTContext *Context = Result.Context;
+    if (const CXXOperatorCallExpr *call = Result.Nodes.getNodeAs<CXXOperatorCallExpr>("assignOp")) {
+      assert(isa<clang::DeclRefExpr>(call->getArgs()[0]) && " assignOp's lhs should be DeclRefExpr \n");
+      auto lhsVarRef = dyn_cast<clang::DeclRefExpr>(call->getArgs()[0]);
+      auto decl = lhsVarRef->getDecl();
+      decls.insert(decl);        
+    }
+  }
+};
+
+static StatementMatcher createMatcher() {
+  return  forEachDescendant(
+              cxxOperatorCallExpr(
+                  anyOf(
+                      hasOperatorName("="),
+                      hasOperatorName("+="),
+                      hasOperatorName("-="),
+                      hasOperatorName("*="),
+                      hasOperatorName("/="),
+                      hasOperatorName("%="),
+                      hasOperatorName("&="),
+                      hasOperatorName("|="),
+                      hasOperatorName("^="),
+                      hasOperatorName("<<="),
+                      hasOperatorName(">>=")
+                  ),
+                  hasLHS(expr(unless(arraySubscriptExpr()))), 
+                  unless(isInTemplateInstantiation())
+              ).bind("assignOp")
+          );
+}
+
+static bool isVarDeclaredInStmt(const ValueDecl *VD, const Stmt *FS, SourceManager &SM) {
+    if (!VD || !FS) return false;
+
+    SourceLocation varLoc = VD->getBeginLoc();
+    SourceLocation forStart = FS->getBeginLoc();
+    SourceLocation forEnd = FS->getEndLoc();
+    
+    return SM.isPointWithin(varLoc, forStart, forEnd);
+}
+
+std::set<const clang::ValueDecl *> getModifyDecls(clang::Stmt *stmts, MLIRASTConsumer &Glob) {
+  MatchFinder finder;
+  AssignDeclInfo callback;
+  finder.addMatcher(createMatcher(), &callback);
+  finder.match(*stmts, Glob.astContext);
+
+  std::set<const clang::ValueDecl *> decls;
+  for (const clang::ValueDecl * decl : callback.decls) {
+    auto mlirType = Glob.getMLIRType(decl->getType());
+    if (isVarDeclaredInStmt(decl, stmts, Glob.astContext.getSourceManager()))
+      continue;
+    if (isa<mlir::RankedTensorType>(mlirType))
+      decls.insert(decl);
+  }
+  return decls;
 }
