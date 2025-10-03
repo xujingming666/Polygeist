@@ -8,6 +8,7 @@
 
 #include "IfScope.h"
 #include "clang-mlir.h"
+#include "utils.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
 #include "mlir/Dialect/OpenMP/OpenMPDialect.h"
@@ -212,6 +213,7 @@ void MLIRScanner::buildAffineLoop(
   buildAffineLoopImpl(fors, loc, lb, ub, descr);
 }
 
+
 ValueCategory MLIRScanner::VisitForStmt(clang::ForStmt *fors) {
   IfScope scope(*this);
 
@@ -242,8 +244,19 @@ ValueCategory MLIRScanner::VisitForStmt(clang::ForStmt *fors) {
     toadd->getBlocks().push_back(&bodyB);
     auto &exitB = *(new Block());
     toadd->getBlocks().push_back(&exitB);
-
-    builder.create<mlir::cf::BranchOp>(loc, &condB);
+    
+    std::set<const clang::ValueDecl *> decls = getModifyDecls(fors->getBody(), Glob);
+    llvm::SmallVector<mlir::Value> initArgs;
+    std::map<const clang::ValueDecl *, ValueCategory> yieldParams;
+    for (const clang::ValueDecl * decl : decls) {
+      mlir::Value initArg = getBlockArgsInitValues(decl).getValue(loc, builder);
+      BlockArgument argBlock = condB.addArgument(initArg.getType(), loc);
+      updateRedefinedLocalParams(decl, ValueCategory(argBlock, true));
+      initArgs.push_back(initArg);
+      yieldParams[decl] = ValueCategory(argBlock, true);
+    }
+    
+    builder.create<mlir::cf::BranchOp>(loc, &condB, initArgs);
 
     builder.setInsertionPointToStart(&condB);
 
@@ -300,9 +313,16 @@ ValueCategory MLIRScanner::VisitForStmt(clang::ForStmt *fors) {
     loops.pop_back();
     if (builder.getInsertionBlock()->empty() ||
         !isTerminator(&builder.getInsertionBlock()->back())) {
-      builder.create<mlir::cf::BranchOp>(loc, &condB);
+      if (!scope.yieldParams.empty()) {
+        llvm::SmallVector<mlir::Value> yieldValues;
+        for (auto it : scope.yieldParams) {
+          yieldValues.push_back(it.second.getValue(loc, builder));
+        }
+        builder.create<mlir::cf::BranchOp>(loc, &condB, yieldValues);
+      } else 
+        builder.create<mlir::cf::BranchOp>(loc, &condB);
     }
-
+    scope.yieldParams = yieldParams;
     builder.setInsertionPointToStart(&exitB);
   }
   return nullptr;
@@ -839,7 +859,7 @@ ValueCategory MLIRScanner::VisitWhileStmt(clang::WhileStmt *stmt) {
 }
 
 ValueCategory MLIRScanner::VisitIfStmt(clang::IfStmt *stmt) {
-  IfScope scope(*this);
+  IfScope scope(*this, true, true);
   auto loc = getMLIRLocation(stmt->getIfLoc());
   if (auto declStmt = stmt->getConditionVariableDeclStmt())
     Visit(declStmt);
@@ -869,95 +889,57 @@ ValueCategory MLIRScanner::VisitIfStmt(clang::IfStmt *stmt) {
   }
 
   bool hasElseRegion = stmt->getElse();
-  auto ifOp = builder.create<mlir::scf::IfOp>(loc, cond, hasElseRegion);
+
+  std::set<const clang::ValueDecl *> decls;
+  llvm::SmallVector<mlir::Type> types;
+  decls = getModifyDecls(stmt, Glob);
+  for (auto decl : decls) {
+    auto type = Glob.getMLIRType(decl->getType());
+    types.push_back(type);
+  }
+  hasElseRegion = !types.empty();
+  auto ifOp = builder.create<mlir::scf::IfOp>(loc, types, cond, hasElseRegion);
 
   std::map<const clang::ValueDecl *, ValueCategory> ifYieldParams, elseYieldParams;
   
   ifOp.getThenRegion().back().clear();
   builder.setInsertionPointToStart(&ifOp.getThenRegion().back());
   Visit(stmt->getThen());
-  builder.create<scf::YieldOp>(loc);
   ifYieldParams = scope.yieldParams;
+  llvm::SmallVector<mlir::Value> ifYieldValues;
+  for (auto decl : decls) {
+    if (ifYieldParams.count(decl) > 0)
+      ifYieldValues.push_back(ifYieldParams[decl].getValue(loc, builder));
+    else
+      ifYieldValues.push_back(getLocalValue(decl).getValue(loc, builder));
+  }
+  builder.create<scf::YieldOp>(loc, ifYieldValues);
   scope.yieldParams.clear();
   scope.localParams.clear();
   if (hasElseRegion) {
     ifOp.getElseRegion().back().clear();
     builder.setInsertionPointToStart(&ifOp.getElseRegion().back());
     Visit(stmt->getElse());
-    builder.create<scf::YieldOp>(loc);
     elseYieldParams = scope.yieldParams;
-    scope.yieldParams.clear();
-    scope.localParams.clear();
-  }
-
-  std::set<const clang::ValueDecl *> decls;
-  for (auto it : ifYieldParams) {
-    decls.insert(it.first);
-  }
-  for (auto it : elseYieldParams) {
-    decls.insert(it.first);
-  }
-
-  if (!ifYieldParams.empty() || !elseYieldParams.empty()) {
-    llvm::SmallVector<mlir::Type, 4> types;
+    llvm::SmallVector<mlir::Value> elseYieldValues;
     for (auto decl : decls) {
-      if (ifYieldParams.count(decl) > 0)
-        types.push_back(ifYieldParams[decl].getValue(loc, builder).getType());
+      if (elseYieldParams.count(decl) > 0)
+        elseYieldValues.push_back(elseYieldParams[decl].getValue(loc, builder));
       else {
-        types.push_back(elseYieldParams[decl].getValue(loc, builder).getType());
+        elseYieldValues.push_back(getLocalValue(decl).getValue(loc, builder));
+        decl->dump();
+        getLocalValue(decl).getValue(loc, builder).dump();
       }
     }
-
-    builder.setInsertionPointAfter(ifOp);
-    auto newIfOp = builder.create<scf::IfOp>(loc, types, ifOp.getCondition(), /*hasElse*/ true);
-    mlir::IRMapping ifMapping;
-    ifOp.getThenRegion().cloneInto(&(newIfOp.getThenRegion()), newIfOp.getThenRegion().begin(), ifMapping);
-    newIfOp.getThenRegion().getBlocks().erase(newIfOp.getThenRegion().back());
-    {
-      mlir::Operation &yieldOperation = newIfOp.getThenRegion().begin()->back();
-      assert(isa<scf::YieldOp>(&yieldOperation) && " last op should be YieldOp \n");
-      builder.setInsertionPointAfter(&yieldOperation);
-      llvm::SmallVector<mlir::Value, 4> yieldValues;
-      for (auto it : llvm::enumerate(decls)) {
-        if (ifYieldParams.count(it.value()) > 0) {
-          mlir::Value value = ifYieldParams[it.value()].getValue(loc, builder);
-          mlir::Value mappedValue = ifMapping.lookup(value);
-          yieldValues.push_back(mappedValue);
-        } else {
-          yieldValues.push_back(getBlockArgsInitValues(it.value()).getValue(loc, builder));
-        }
-      }
-      builder.create<scf::YieldOp>(loc, yieldValues);
-      yieldOperation.erase();
-    }
+    builder.create<scf::YieldOp>(loc, elseYieldValues);
     
-    mlir::IRMapping elseMapping;
-    ifOp.getElseRegion().cloneInto(&(newIfOp.getElseRegion()), newIfOp.getElseRegion().begin(), elseMapping);
-    newIfOp.getElseRegion().getBlocks().erase(newIfOp.getElseRegion().back());
-    {
-      mlir::Operation &yieldOperation = newIfOp.getElseRegion().begin()->back();
-      assert(isa<scf::YieldOp>(&yieldOperation) && " last op should be YieldOp \n");
-      builder.setInsertionPointAfter(&yieldOperation);
-      llvm::SmallVector<mlir::Value, 4> yieldValues;
-      for (auto it : llvm::enumerate(decls)) {
-        if (elseYieldParams.count(it.value()) > 0) {
-          mlir::Value value = elseYieldParams[it.value()].getValue(loc, builder);
-          mlir::Value mappedValue = elseMapping.lookup(value);
-          yieldValues.push_back(mappedValue);
-        } else {
-          yieldValues.push_back(getBlockArgsInitValues(it.value()).getValue(loc, builder));
-        }
-      }
-      builder.create<scf::YieldOp>(loc, yieldValues);
-      yieldOperation.erase();
-    }
-    
-    scope.localParams.clear();
     scope.yieldParams.clear();
-    for (auto it : llvm::enumerate(decls)) {
-      scope.yieldParams[it.value()] = ValueCategory(newIfOp.getResults()[it.index()], true);
-    }
-    ifOp.erase();
+    scope.localParams.clear();
+  }
+
+  for (auto it : llvm::enumerate(decls)) {
+    scope.yieldParams[it.value()] = ValueCategory(ifOp.getResults()[it.index()], true);
+    updateRedefinedLocalParams(it.value(), ValueCategory(ifOp.getResults()[it.index()], true));
   }
 
   builder.setInsertionPoint(oldblock, oldpoint);
@@ -1103,7 +1085,7 @@ ValueCategory MLIRScanner::VisitSwitchStmt(clang::SwitchStmt *stmt) {
 }
 
 ValueCategory MLIRScanner::VisitDeclStmt(clang::DeclStmt *decl) {
-  IfScope scope(*this);
+  IfScope scope(*this, false);
   for (auto *sub : decl->decls()) {
     if (auto *vd = dyn_cast<VarDecl>(sub)) {
       VisitVarDecl(vd);
@@ -1127,7 +1109,7 @@ ValueCategory MLIRScanner::VisitAttributedStmt(AttributedStmt *AS) {
 
 ValueCategory MLIRScanner::VisitCompoundStmt(clang::CompoundStmt *stmt) {
   for (auto *a : stmt->children()) {
-    IfScope scope(*this);
+    IfScope scope(*this, false);
     Visit(a);
   }
   return nullptr;

@@ -552,7 +552,7 @@ void MLIRScanner::init(mlir::func::FuncOp function, const FunctionDecl *fd) {
     for (auto arg : outputArgs) {
       mlir::Value retValue;
       mlir::Type retType = function.getFunctionType().getResults()[i+idxOffset];
-      if (argsAliasMap[arg]) {
+      if (argsAliasMap[arg] && params.count(argsAliasMap[arg]) > 0) {
         retValue = params[argsAliasMap[arg]].getValue(loc, builder);
       } else {
         retValue = params[arg].getValue(loc, builder);
@@ -1072,7 +1072,7 @@ ValueCategory MLIRScanner::VisitVarDecl(clang::VarDecl *decl) {
       }
 
       if (visit.isTensorValue()) {
-        updateLocalDecl(decl, visit);
+        updateInitLocalDecl(decl, visit);
         argsAliasMap[visit.getDecl()] = decl;
         return visit;
       }
@@ -1122,7 +1122,7 @@ ValueCategory MLIRScanner::VisitVarDecl(clang::VarDecl *decl) {
         llvm_unreachable("tensor InitListExpr not suppoted now \n");
       } else if (auto CE = dyn_cast<CXXConstructExpr>(init)) {
         auto visit = Visit(CE);
-        updateLocalDecl(decl, visit);
+        updateInitLocalDecl(decl, visit);
         argsAliasMap[visit.getDecl()] = decl;
         return visit;
       } else
@@ -2819,15 +2819,34 @@ ValueCategory MLIRScanner::VisitCXXOperatorCallExpr(clang::CXXOperatorCallExpr *
 
     if (BO->getOperator() == clang::OverloadedOperatorKind::OO_Equal) {
       if (auto lhsVarRef = dyn_cast<clang::DeclRefExpr>(BO->getArgs()[0])) {
-        if (!isLocalDecl(lhsVarRef->getDecl())) {
-          ifScopeStacks.back()->yieldParams[lhsVarRef->getDecl()] = ValueCategory(rhsValue, true);
-        }
-        if (ifScopeStacks.size()) {
-          ifScopeStacks.back()->localParams[lhsVarRef->getDecl()] = ValueCategory(rhsValue, true);
-        } else
-          params[lhsVarRef->getDecl()] = ValueCategory(rhsValue, true); 
+        updateRedefinedLocalParams(lhsVarRef->getDecl(), ValueCategory(rhsValue, true));
       }
       return ValueCategory(rhsValue, true);
+    }
+
+    if (BO->getOperator() == clang::OverloadedOperatorKind::OO_PlusEqual) {
+      auto lhsType = dyn_cast<mlir::RankedTensorType>(lhsValue.getType());
+      auto lhsShape = lhsType.getShape();
+      auto elementType = lhsType.getElementType();
+
+      llvm::SmallVector<mlir::Value> dynamicShapes;
+      for (auto it : llvm::enumerate(lhsShape)) {
+        if (it.value() == ShapedType::kDynamic) {
+          auto mValue = builder.create<tensor::DimOp>(loc, lhsValue, it.index());
+          dynamicShapes.push_back(mValue);
+        }
+      }
+      auto allocTensor = builder.create<tensor::EmptyOp>(loc, 
+                          lhsShape, elementType, dynamicShapes);
+      auto matmul_result = builder.create<linalg::ElemwiseBinaryOp>(loc, TypeRange{lhsType},
+                                      ValueRange{lhsValue, rhsValue}, ValueRange{allocTensor},
+                                      linalg::BinaryFnAttr::get(builder.getContext(), linalg::BinaryFn::add),
+                                      linalg::TypeFnAttr::get(builder.getContext(), linalg::TypeFn::cast_signed));
+      auto resultValue = ValueCategory(matmul_result.getResult(0), true);
+      if (auto lhsVarRef = dyn_cast<clang::DeclRefExpr>(BO->getArgs()[0])) {
+        updateRedefinedLocalParams(lhsVarRef->getDecl(), resultValue);
+      }
+      return resultValue;
     }
   }
 

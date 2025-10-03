@@ -252,31 +252,67 @@ public:
     return params.count(decl) > 0;
   }
 
-  // update Local define variable value if it is modified.
-  void updateLocalDecl(const ValueDecl *decl, ValueCategory value) {
+  // newly defined Decl: defined inside ifscope, but used outside ifscope.
+  void updateInitLocalDecl(const ValueDecl *decl, ValueCategory value) {
     ifScopeStacks.back()->yieldParams[decl] = value;
+    
+    for (auto it = ifScopeStacks.rbegin(); it != ifScopeStacks.rend(); it++) {
+      if (!(*it)->isRealScope)
+        continue;
+      (*it)->localParams[decl] = value;
+        return;
+    }
+
+    params[decl] = value;
+  }
+
+  // decl defined out of ifscope is modified or redefined.
+  void updateRedefinedLocalParams(const ValueDecl *decl, ValueCategory value) {
+    auto it = ifScopeStacks.rbegin();
+    if (isLocalDecl(decl)) {
+      if (ifScopeStacks.size() > 0) {
+        (*it)->localParams[decl] = value;
+        if ((*it)->yieldParams.count(decl) > 0)
+          (*it)->yieldParams[decl] = value;
+      } else 
+        params[decl] = value;
+      return;
+    }
+
+    (*it)->yieldParams[decl] = value;
+    for (; it != ifScopeStacks.rend(); it++) {
+      if (!(*it)->isRealScope)
+        continue;
+      if ((*it)->isIfScope) {
+        (*it)->localParams[decl] = value;
+        return;
+      }
+      if ((*it)->localParams.count(decl) > 0) {
+        (*it)->localParams[decl] = value;
+        return;
+      }
+    }
+    if (ifScopeStacks.size() > 0) {
+      params[decl] = value;
+    }
   }
   
   ValueCategory getLocalValue(const ValueDecl *decl) {
-    for(int i = 0; i < ifScopeStacks.size(); i++) {
-      if (ifScopeStacks[ifScopeStacks.size() - 1 - i]->localParams.count(decl) > 0) {
-        return ifScopeStacks[ifScopeStacks.size() - 1 - i]->localParams[decl];
-      }
+    for (auto it = ifScopeStacks.rbegin(); it != ifScopeStacks.rend(); it++) {
+      if((*it)->localParams.count(decl) > 0)
+        return (*it)->localParams[decl];
     }
     return params[decl];
   }
 
   ValueCategory getBlockArgsInitValues(const ValueDecl *decl) {
-    for(int i = 0; i < ifScopeStacks.size() - 1; i++) {
-      if (ifScopeStacks[ifScopeStacks.size() - 2 - i]->localParams.count(decl) > 0) {
-        return ifScopeStacks[ifScopeStacks.size() - 2 - i]->localParams[decl];
-      }
-    }
-    if (ifScopeStacks.size() > 0) {
-      return params[decl];
+    assert(ifScopeStacks.size() > 0 && " ifScopeStacks is empty \n");
+    for (auto it = ifScopeStacks.rbegin() + 1; it != ifScopeStacks.rend(); it++) {
+      if((*it)->localParams.count(decl) > 0)
+        return (*it)->localParams[decl];
     }
 
-    return ValueCategory();
+    return params[decl];
   }
 
   bool shouldVisit(clang::Stmt* stmt) {

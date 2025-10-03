@@ -19,6 +19,8 @@ class MLIRScanner;
 
 class IfScope {
 public:
+  bool isRealScope;
+  bool isIfScope;
   MLIRScanner &scanner;
   mlir::Block *prevBlock;
   mlir::Block::iterator prevIterator;
@@ -27,10 +29,8 @@ public:
   std::map<const clang::ValueDecl *, ValueCategory> localParams;
   std::map<const clang::ValueDecl *, ValueCategory> yieldParams;
 
-  bool isLocal(const clang::ValueDecl *decl) { return localParams.count(decl) > 0; }
-
   llvm::SmallVector<mlir::Value, 4> getDynamicValues(mlir::Location &loc, mlir::OpBuilder & builder, mlir::RankedTensorType type);
-  IfScope(MLIRScanner &scanner);
+  IfScope(MLIRScanner &scanner, bool isRealScope = true, bool isIfScope = false);
   ~IfScope();
 };
 

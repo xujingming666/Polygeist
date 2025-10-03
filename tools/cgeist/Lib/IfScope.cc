@@ -14,7 +14,7 @@
 
 using namespace mlir;
 
-IfScope::IfScope(MLIRScanner &scanner) : scanner(scanner), prevBlock(nullptr) {
+IfScope::IfScope(MLIRScanner &scanner, bool isRealScope, bool isIfScope) : scanner(scanner), prevBlock(nullptr), isRealScope(isRealScope), isIfScope(isIfScope) {
   if (scanner.loops.size() && scanner.loops.back().keepRunning) {
     auto loc = scanner.builder.getUnknownLoc();
     auto lop = scanner.builder.create<memref::LoadOp>(
@@ -84,15 +84,41 @@ IfScope::~IfScope() {
 
       for (auto it : llvm::enumerate(yieldParams)) {
         auto decl = it.value().first;
-        auto newValue = newIfOp.getResults()[it.index()];
-
+        auto newValue = ValueCategory(newIfOp.getResults()[it.index()], true);
         if (scanner.ifScopeStacks.size() > 1) {
-          if (scanner.ifScopeStacks[scanner.ifScopeStacks.size() - 2]->localParams.count(decl) > 0)
-            scanner.ifScopeStacks[scanner.ifScopeStacks.size() - 2]->localParams[decl] = ValueCategory(newValue, true);
-          else
-            scanner.ifScopeStacks[scanner.ifScopeStacks.size() - 2]->yieldParams[decl] = ValueCategory(newValue, true);
+          // update ifscope include this ifscope, so updateRedefinedLocalParams can not be used directly. 
+          auto it = scanner.ifScopeStacks.rbegin() + 1;
+          if ((*it)->localParams.count(decl) > 0) {
+            if ((*it)->isRealScope) {
+              (*it)->localParams[decl] = newValue;
+              if ((*it)->yieldParams.count(decl) > 0)
+                (*it)->yieldParams[decl] = newValue;
+            } else {
+              (*it)->yieldParams[decl] = newValue;
+            }
+          } else {
+            (*it)->yieldParams[decl] = newValue;
+            bool isModified = false;
+            for (; it != scanner.ifScopeStacks.rend(); it++) {
+              if (!(*it)->isRealScope)
+                continue;
+              if ((*it)->isIfScope) {
+                (*it)->localParams[decl] = newValue;
+                isModified = true;
+                break;
+              }
+              if ((*it)->localParams.count(decl) > 0) {
+                (*it)->localParams[decl] = newValue;
+                isModified = true;
+                break;
+              }
+            }
+
+            if (!isModified)
+              scanner.params[decl] = newValue;
+          }
         } else
-          scanner.params[decl] = ValueCategory(newValue, true);
+          scanner.params[decl] = newValue;
       }
       ifOp->erase();
     } else {
