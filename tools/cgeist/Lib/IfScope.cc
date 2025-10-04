@@ -7,12 +7,19 @@
 //===----------------------------------------------------------------------===//
 #include "IfScope.h"
 #include "clang-mlir.h"
-
+#include "utils.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 
 using namespace mlir;
+
+void IfScope::collectEntryInfo(clang::Stmt *stmt, MLIRASTConsumer &astContext) {
+  std::set<const clang::ValueDecl *> decls = getModifyDecls(stmt, astContext);
+  for (const clang::ValueDecl * decl : decls) {
+    entryParams[decl] = scanner.getLocalValue(decl);
+  }
+}
 
 IfScope::IfScope(MLIRScanner &scanner, bool isRealScope, bool isIfScope) : scanner(scanner), prevBlock(nullptr), isRealScope(isRealScope), isIfScope(isIfScope) {
   if (scanner.loops.size() && scanner.loops.back().keepRunning) {
@@ -75,10 +82,14 @@ IfScope::~IfScope() {
       builder.setInsertionPointToStart(&newIfOp.getElseRegion().back());
 
       llvm::SmallVector<mlir::Value, 4> retValues;
-      for (auto result : newer.getResults()) {
-        mlir::RankedTensorType type = dyn_cast<mlir::RankedTensorType>(result.getType());
-        llvm::SmallVector<mlir::Value, 4> dynamicValues = getDynamicValues(loc, builder, type);
-        retValues.push_back(builder.create<tensor::EmptyOp>(loc, type, dynamicValues));
+      for (auto it : yieldParams) {
+        if (entryParams.count(it.first) > 0)
+          retValues.push_back(entryParams[it.first].getValue(loc, builder));
+        else {
+          mlir::RankedTensorType type = dyn_cast<mlir::RankedTensorType>(it.second.getValue(loc, builder).getType());
+          llvm::SmallVector<mlir::Value, 4> dynamicValues = getDynamicValues(loc, builder, type);
+          retValues.push_back(builder.create<tensor::EmptyOp>(loc, type, dynamicValues));
+        }
       }
       builder.create<scf::YieldOp>(loc, retValues);
 

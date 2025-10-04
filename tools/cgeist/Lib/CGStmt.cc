@@ -216,7 +216,7 @@ void MLIRScanner::buildAffineLoop(
 
 ValueCategory MLIRScanner::VisitForStmt(clang::ForStmt *fors) {
   IfScope scope(*this);
-
+  scope.collectEntryInfo(fors, Glob);
   auto loc = getMLIRLocation(fors->getForLoc());
 
   mlirclang::AffineLoopDescriptor affineLoopDescr;
@@ -860,6 +860,7 @@ ValueCategory MLIRScanner::VisitWhileStmt(clang::WhileStmt *stmt) {
 
 ValueCategory MLIRScanner::VisitIfStmt(clang::IfStmt *stmt) {
   IfScope scope(*this, true, true);
+  scope.collectEntryInfo(stmt, Glob);
   auto loc = getMLIRLocation(stmt->getIfLoc());
   if (auto declStmt = stmt->getConditionVariableDeclStmt())
     Visit(declStmt);
@@ -1086,6 +1087,7 @@ ValueCategory MLIRScanner::VisitSwitchStmt(clang::SwitchStmt *stmt) {
 
 ValueCategory MLIRScanner::VisitDeclStmt(clang::DeclStmt *decl) {
   IfScope scope(*this, false);
+  scope.collectEntryInfo(decl, Glob);
   for (auto *sub : decl->decls()) {
     if (auto *vd = dyn_cast<VarDecl>(sub)) {
       VisitVarDecl(vd);
@@ -1110,6 +1112,7 @@ ValueCategory MLIRScanner::VisitAttributedStmt(AttributedStmt *AS) {
 ValueCategory MLIRScanner::VisitCompoundStmt(clang::CompoundStmt *stmt) {
   for (auto *a : stmt->children()) {
     IfScope scope(*this, false);
+    scope.collectEntryInfo(a, Glob);
     Visit(a);
   }
   return nullptr;

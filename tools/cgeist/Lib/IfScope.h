@@ -16,6 +16,7 @@
 #include "mlir/Dialect/SCF/IR/SCF.h"
 
 class MLIRScanner;
+class MLIRASTConsumer;
 
 class IfScope {
 public:
@@ -26,11 +27,14 @@ public:
   mlir::Block::iterator prevIterator;
   mlir::scf::IfOp  ifOp;
   mlir::scf::ExecuteRegionOp er;
+  
   std::map<const clang::ValueDecl *, ValueCategory> localParams;
   std::map<const clang::ValueDecl *, ValueCategory> yieldParams;
+  std::map<const clang::ValueDecl *, ValueCategory> entryParams;
 
   llvm::SmallVector<mlir::Value, 4> getDynamicValues(mlir::Location &loc, mlir::OpBuilder & builder, mlir::RankedTensorType type);
   IfScope(MLIRScanner &scanner, bool isRealScope = true, bool isIfScope = false);
+  void collectEntryInfo(clang::Stmt *stmt, MLIRASTConsumer &astContext);
   ~IfScope();
 };
 

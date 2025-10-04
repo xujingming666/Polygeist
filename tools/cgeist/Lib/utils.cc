@@ -92,8 +92,27 @@ public:
 };
 
 static StatementMatcher createMatcher() {
-  return  forEachDescendant(
+  return  anyOf(
+            forEachDescendant(
               cxxOperatorCallExpr(
+                  anyOf(
+                      hasOperatorName("="),
+                      hasOperatorName("+="),
+                      hasOperatorName("-="),
+                      hasOperatorName("*="),
+                      hasOperatorName("/="),
+                      hasOperatorName("%="),
+                      hasOperatorName("&="),
+                      hasOperatorName("|="),
+                      hasOperatorName("^="),
+                      hasOperatorName("<<="),
+                      hasOperatorName(">>=")
+                  ),
+                  hasLHS(expr(unless(arraySubscriptExpr()))), 
+                  unless(isInTemplateInstantiation())
+              ).bind("assignOp")
+            ),
+            cxxOperatorCallExpr(
                   anyOf(
                       hasOperatorName("="),
                       hasOperatorName("+="),
