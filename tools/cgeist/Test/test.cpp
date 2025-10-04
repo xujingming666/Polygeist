@@ -31,6 +31,13 @@ void kernel_deriche(float *lhs, float *rhs, __output float *out, __output float 
         }
     }
 
+    for (int i = 0 ; i < h; i++) {
+        if (i > j) {
+            break;
+        }
+        out_tensor += mac_add(out_tensor, rhs_tensor);
+    }
+
     // SL_VECTOR1<int> temp2({1, 1});
     // int arr[] = {1, 2, 3}; 
 
