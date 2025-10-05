@@ -107,9 +107,7 @@ mlir::Value allocateTemporaryBuffer<mlir::LLVM::CallOp>(
               value.getLoc(), sz,
               rewriter.create<arith::ConstantIntOp>(
                   value.getLoc(),
-                  DLI->getTypeSize(val.getType()
-                                       .cast<LLVM::LLVMPointerType>()
-                                       .getElementType()),
+                  DLI->getTypeSize(val.getElemType()),
                   sz.getType().cast<IntegerType>().getWidth()))
           .getResult());
   for (auto iter : iterationCounts) {

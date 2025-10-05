@@ -766,9 +766,9 @@ static LogicalResult distributeAroundBarrier(T op, BarrierOp barrier,
         while (user->getBlock() != barrier->getBlock())
           user = user->getBlock()->getParentOp();
         if (barrier->isBeforeInBlock(user)) {
-          rewriter.startRootUpdate(user);
+          rewriter.startOpModification(user);
           u.set(mapping.lookup(v));
-          rewriter.finalizeRootUpdate(user);
+          rewriter.finalizeOpModification(user);
         }
       }
     }
@@ -888,7 +888,7 @@ static LogicalResult distributeAroundBarrier(T op, BarrierOp barrier,
                                       rewriter.create<arith::IndexCastOp>(
                                           ao.getLoc(), sz.getType(), idx));
         SmallVector<Value> vec = {idx};
-        u.set(rewriter.create<LLVM::GEPOp>(ao.getLoc(), ao.getType(), alloc,
+        u.set(rewriter.create<LLVM::GEPOp>(ao.getLoc(), ao.getType(), ao.getElemType(), alloc,
                                            idx));
       }
     } else {
@@ -919,9 +919,9 @@ static LogicalResult distributeAroundBarrier(T op, BarrierOp barrier,
         user = user->getBlock()->getParentOp();
 
       if (barrier->isBeforeInBlock(user)) {
-        rewriter.startRootUpdate(user);
+        rewriter.startOpModification(user);
         u.set(reloaded);
-        rewriter.finalizeRootUpdate(user);
+        rewriter.finalizeOpModification(user);
       }
     }
   }
@@ -1074,7 +1074,7 @@ wrapWithBarriers(T op, PatternRewriter &rewriter,
 
   // We don't actually change the op, but the pattern infra wants us to. Just
   // pretend we changed it in-place.
-  rewriter.updateRootInPlace(op, [] {});
+  rewriter.modifyOpInPlace(op, [] {});
   LLVM_DEBUG(DBGS() << "[wrap] wrapped '" << op->getName().getStringRef()
                     << "' with barriers\n");
   return success();
@@ -1222,7 +1222,7 @@ static void insertRecomputables(PatternRewriter &rewriter, T oldParallel,
   for (auto it = oldParallel.getBody()->begin(); dyn_cast<T2>(*it) != until;
        ++it) {
     auto newOp = rewriter.clone(*it, mapping);
-    rewriter.replaceOpWithinBlock(&*it, newOp->getResults(),
+    rewriter.replaceOpUsesWithinBlock(&*it, newOp->getResults(),
                                   newParallel.getBody());
   }
 }
@@ -1232,7 +1232,7 @@ static void insertRecomputables(PatternRewriter &rewriter, T oldParallel,
 template <typename T, typename IfType>
 static void moveBodiesIf(PatternRewriter &rewriter, T op, IfType ifOp,
                          IfType newIf) {
-  rewriter.startRootUpdate(op);
+  rewriter.startOpModification(op);
   {
     OpBuilder::InsertionGuard guard(rewriter);
     rewriter.setInsertionPointToStart(getThenBlock(newIf));
@@ -1289,7 +1289,7 @@ static void moveBodiesIf(PatternRewriter &rewriter, T op, IfType ifOp,
 
   rewriter.eraseOp(ifOp);
   rewriter.eraseOp(op);
-  rewriter.finalizeRootUpdate(op);
+  rewriter.finalizeOpModification(op);
 }
 
 mlir::OperandRange getLowerBounds(scf::ParallelOp op,
@@ -1329,7 +1329,7 @@ static void moveBodiesFor(PatternRewriter &rewriter, T op, ForType forLoop,
   for (auto it = op.getBody()->begin(); dyn_cast<ForType>(*it) != forLoop;
        ++it) {
     auto newOp = rewriter.clone(*it, mapping);
-    rewriter.replaceOpWithinBlock(&*it, newOp->getResults(), forLoop.getBody());
+    rewriter.replaceOpUsesWithinBlock(&*it, newOp->getResults(), forLoop.getBody());
   }
   rewriter.setInsertionPointToEnd(newParallel.getBody());
   rewriter.clone(*op.getBody()->getTerminator());
@@ -1872,9 +1872,9 @@ void getIfCrossingCache(mlir::PatternRewriter &rewriter, Block *original,
         while (user->getBlock() != barrier->getBlock())
           user = user->getBlock()->getParentOp();
         if (barrier->isBeforeInBlock(user)) {
-          rewriter.startRootUpdate(user);
+          rewriter.startOpModification(user);
           u.set(mapping.lookup(v));
-          rewriter.finalizeRootUpdate(user);
+          rewriter.finalizeOpModification(user);
         }
       }
     }
@@ -2152,9 +2152,9 @@ struct DistributeIfAroundBarrier : public OpRewritePattern<IfOpType> {
             user = user->getBlock()->getParentOp();
 
           if (barrier->isBeforeInBlock(user)) {
-            rewriter.startRootUpdate(user);
+            rewriter.startOpModification(user);
             u.set(reloaded);
-            rewriter.finalizeRootUpdate(user);
+            rewriter.finalizeOpModification(user);
           }
         }
       }
@@ -2528,7 +2528,7 @@ struct Reg2MemIf : public OpRewritePattern<T> {
     rewriter.eraseOp(&getElseBlock(newOp)->back());
     rewriter.mergeBlocks(getElseBlock(op), getElseBlock(newOp));
 
-    rewriter.startRootUpdate(op);
+    rewriter.startOpModification(op);
     rewriter.setInsertionPoint(op);
     for (auto pair : llvm::zip(op->getResults(), allocated)) {
       auto alloc = std::get<1>(pair);
@@ -2546,7 +2546,7 @@ struct Reg2MemIf : public OpRewritePattern<T> {
                   ->getResult(0));
       }
     }
-    rewriter.finalizeRootUpdate(op);
+    rewriter.finalizeOpModification(op);
     rewriter.eraseOp(op);
     return success();
   }
@@ -2607,7 +2607,7 @@ struct Reg2MemWhile : public OpRewritePattern<scf::WhileOp> {
     storeValues(op.getLoc(), beforeTerminator.getArgs(), afterAllocated,
                 rewriter);
 
-    rewriter.updateRootInPlace(
+    rewriter.modifyOpInPlace(
         beforeTerminator, [&] { beforeTerminator.getArgsMutable().clear(); });
 
     Block *newAfter =
@@ -2622,7 +2622,7 @@ struct Reg2MemWhile : public OpRewritePattern<scf::WhileOp> {
     storeValues(op.getLoc(), afterTerminator.getResults(), beforeAllocated,
                 rewriter);
 
-    rewriter.updateRootInPlace(
+    rewriter.modifyOpInPlace(
         afterTerminator, [&] { afterTerminator.getResultsMutable().clear(); });
 
     rewriter.setInsertionPointAfter(op);
@@ -2703,7 +2703,7 @@ struct CPUifyPass : public SCFCPUifyBase<CPUifyPass> {
   CPUifyPass(StringRef method) { this->method.setValue(method.str()); }
   void runOnOperation() override {
     StringRef method(this->method);
-    if (method.startswith("distribute")) {
+    if (method.starts_with("distribute")) {
       {
         RewritePatternSet patterns(&getContext());
         if (method.contains("mincut"))

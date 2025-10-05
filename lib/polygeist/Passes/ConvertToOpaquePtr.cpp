@@ -107,7 +107,7 @@ struct FuncOpConversion : public OpConversionPattern<func::FuncOp> {
         funcOp.getLoc(), funcOp.getName(), convertedType,
         funcOp.getSymVisibilityAttr(), funcOp.getArgAttrsAttr(),
         funcOp.getResAttrsAttr());
-    newFuncOp->setDiscardableAttrs(funcOp->getDiscardableAttrs());
+    newFuncOp->setDiscardableAttrs(funcOp->getDiscardableAttrDictionary());
 
     rewriter.inlineRegionBefore(funcOp.getBody(), newFuncOp.getBody(),
                                 newFuncOp.end());
@@ -146,8 +146,8 @@ struct LLVMFuncOpConversion : public OpConversionPattern<LLVM::LLVMFuncOp> {
     auto newFuncOp = rewriter.create<LLVM::LLVMFuncOp>(
         funcOp.getLoc(), funcOp.getNameAttr(), convertedType,
         funcOp.getLinkage(), funcOp.getDsoLocal(), funcOp.getCConv(),
-        funcOp.getComdatAttr(), funcOp->getDiscardableAttrs());
-    newFuncOp->setDiscardableAttrs(funcOp->getDiscardableAttrs());
+        funcOp.getComdatAttr(), funcOp->getDiscardableAttrDictionary().getValue());
+    newFuncOp->setDiscardableAttrs(funcOp->getDiscardableAttrDictionary());
 
     rewriter.inlineRegionBefore(funcOp.getBody(), newFuncOp.getBody(),
                                 newFuncOp.end());
@@ -168,6 +168,7 @@ struct AllocaConversion : public OpConversionPattern<LLVM::AllocaOp> {
   LogicalResult
   matchAndRewrite(LLVM::AllocaOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
+#if 0
     Operation *rewritten;
     auto resTy = op.getRes().getType();
     assert(!resTy.isOpaque());
@@ -178,6 +179,7 @@ struct AllocaConversion : public OpConversionPattern<LLVM::AllocaOp> {
             .failed())
       return failure();
     rewriter.replaceOp(op, rewritten->getResults());
+#endif
     return success();
   }
 };
@@ -187,6 +189,7 @@ struct GEPConversion : public OpConversionPattern<LLVM::GEPOp> {
   LogicalResult
   matchAndRewrite(LLVM::GEPOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
+#if 0
     Operation *rewritten;
     TypeAttr elty = nullptr;
     if (!op->getAttr(kElemTypeAttrName))
@@ -200,6 +203,7 @@ struct GEPConversion : public OpConversionPattern<LLVM::GEPOp> {
     rewriter.replaceOp(op, rewritten->getResults());
     assert(op.getResult().getType() != rewriter.getI32Type());
     rewritten->removeAttr(todoAttr);
+#endif
     return success();
   }
 };

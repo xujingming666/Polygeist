@@ -35,6 +35,7 @@
 
 #include "polygeist/Ops.h"
 #include "polygeist/Passes/Utils.h"
+#include "polygeist/PtrUtil.h"
 
 #define DEBUG_TYPE "mem2reg"
 
@@ -1086,7 +1087,7 @@ bool PolygeistMem2Reg::forwardStoreToLoad(
   if (auto MT = dyn_cast<MemRefType>(AI.getType()))
     elType = MT.getElementType();
   else
-    elType = AI.getType().cast<LLVM::LLVMPointerType>().getElementType();
+    elType = getValuePtrType(AI);
 
   std::deque<std::pair<mlir::Value, /*indexed*/ bool>> list = {{AI, false}};
 

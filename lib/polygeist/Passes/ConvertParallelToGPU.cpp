@@ -23,7 +23,7 @@
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "mlir/Support/LLVM.h"
-#include "mlir/Support/MathExtras.h"
+#include "llvm/Support/MathExtras.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "mlir/Transforms/RegionUtils.h"
@@ -278,7 +278,7 @@ struct SharedLLVMAllocaToGlobal : public OpRewritePattern<LLVM::AllocaOp> {
       return failure();
     }
 
-    auto type = PT.getElementType();
+    auto type = ao.getElemType();
     auto loc = ao->getLoc();
     auto name = "shared_mem_" + std::to_string((long long int)(Operation *)ao);
 
@@ -923,7 +923,7 @@ struct ParallelizeBlockOps : public OpRewritePattern<scf::ParallelOp> {
         }
         newOp = rewriter.clone(op, mapping);
       }
-      rewriter.replaceOpWithinBlock(&op, newOp->getResults(), innerBlock);
+      rewriter.replaceOpUsesWithinBlock(&op, newOp->getResults(), innerBlock);
       toErase.push_back(&op);
     }
     it++;
@@ -1212,7 +1212,7 @@ struct HandleWrapperRootOps : public OpRewritePattern<polygeist::GPUWrapperOp> {
       } else {
         llvm_unreachable("are there other effects?");
       }
-      rewriter.replaceOpWithIf(op, cloned, [&](OpOperand &use) {
+      rewriter.replaceUsesWithIf(op->getResults(), cloned, [&](OpOperand &use) {
         Operation *owner = use.getOwner();
         while (owner->getBlock() != pop->getBlock())
           owner = owner->getParentOp();
@@ -1279,7 +1279,7 @@ struct RemovePolygeistNoopOp : public OpRewritePattern<polygeist::NoopOp> {
     }
     auto noopType =
         noop->getAttrOfType<StringAttr>("polygeist.noop_type").getValue();
-    if (!noopType.startswith("gpu_kernel.")) {
+    if (!noopType.starts_with("gpu_kernel.")) {
       LLVM_DEBUG(DBGS() << "noop does not have the appropriate attribute\n");
       return failure();
     }
@@ -2273,8 +2273,7 @@ struct MergeGPUModulesPass
         } else if (!(cloneIf(dyn_cast<memref::GlobalOp>(&op)) ||
                      cloneIf(dyn_cast<LLVM::GlobalOp>(&op)) ||
                      cloneIf(dyn_cast<func::FuncOp>(&op)) ||
-                     cloneIf(dyn_cast<LLVM::LLVMFuncOp>(&op)) ||
-                     isa<gpu::ModuleEndOp>(&op))) {
+                     cloneIf(dyn_cast<LLVM::LLVMFuncOp>(&op)))) {
           op.emitError("Unexpected global type in gpu module");
           op.dump();
           assert(0);

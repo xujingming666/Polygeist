@@ -621,7 +621,7 @@ void moveSerialLoopInvariantCode(affine::AffineForOp looplike) {
     SmallVector<AffineExpr, 2> exprs;
     SmallVector<bool, 2> eqflags;
 
-    auto step = looplike.getStep();
+    auto step = mlir::getAffineConstantExpr(looplike.getStep().getZExtValue(), looplike.getContext());
     for (auto ub : looplike.getUpperBoundMap().getResults()) {
       SmallVector<AffineExpr, 4> symbols;
       for (unsigned idx = 0; idx < looplike.getUpperBoundMap().getNumSymbols();

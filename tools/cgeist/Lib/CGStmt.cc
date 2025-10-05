@@ -252,7 +252,7 @@ ValueCategory MLIRScanner::VisitForStmt(clang::ForStmt *fors) {
       if (auto mt = dyn_cast<mlir::MemRefType>(cond.getType())) {
         cond = builder.create<polygeist::Memref2PointerOp>(
             loc,
-            LLVM::LLVMPointerType::get(mt.getElementType(),
+            LLVM::LLVMPointerType::get(builder.getContext(),
                                        mt.getMemorySpaceAsInt()),
             cond);
       }
@@ -467,7 +467,7 @@ ValueCategory MLIRScanner::VisitOMPForDirective(clang::OMPForDirective *fors) {
         loc, builder.getIndexType(), Visit(f).getValue(loc, builder)));
   }
 
-  auto affineOp = builder.create<omp::WsLoopOp>(loc, inits, finals, incs);
+  auto affineOp = builder.create<omp::LoopOp>(loc, nullptr, inits, nullptr, nullptr, nullptr, nullptr, /*finals,*/ incs, nullptr, nullptr);
   affineOp.getRegion().push_back(new Block());
   for (auto init : inits)
     affineOp.getRegion().front().addArgument(init.getType(), init.getLoc());
@@ -579,10 +579,8 @@ MLIRScanner::VisitOMPParallelDirective(clang::OMPParallelDirective *par) {
     }
   }
   auto affineOp = builder.create<omp::ParallelOp>(
-      loc, /*if_expr_var*/ Value{}, numThreads, /*allocate_vars*/ ValueRange{},
-      /*allocators_vars*/ ValueRange{}, /*reduction_vars*/ ValueRange{},
-      /*reductions*/ ArrayAttr{},
-      /*proc_bind_val*/ omp::ClauseProcBindKindAttr{});
+      loc, /*allocate_vars*/  ValueRange{}, /*allocators_vars*/ ValueRange{}, /*if_expr_var*/ Value{}, numThreads, 
+      /*private_vars*/ ValueRange{}, nullptr, nullptr, nullptr, /*reduction_vars*/ ValueRange{}, nullptr, nullptr);
 
   auto oldpoint = builder.getInsertionPoint();
   auto *oldblock = builder.getInsertionBlock();
@@ -851,7 +849,7 @@ ValueCategory MLIRScanner::VisitIfStmt(clang::IfStmt *stmt) {
   auto *oldblock = builder.getInsertionBlock();
   if (auto LT = dyn_cast<MemRefType>(cond.getType())) {
     cond = builder.create<polygeist::Memref2PointerOp>(
-        loc, LLVM::LLVMPointerType::get(builder.getI8Type()), cond);
+        loc, LLVM::LLVMPointerType::get(builder.getContext()), cond);
   }
   if (auto LT = dyn_cast<mlir::LLVM::LLVMPointerType>(cond.getType())) {
     auto nullptr_llvm = builder.create<mlir::LLVM::ZeroOp>(loc, LT);

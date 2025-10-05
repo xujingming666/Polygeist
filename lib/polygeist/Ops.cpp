@@ -351,12 +351,12 @@ bool collectEffects(Operation *op,
         effects.emplace_back(MemoryEffects::Effect::get<MemoryEffects::Read>());
 
         bool first = true;
-        for (auto arg : cop.getArgOperands()) {
+        for (auto &arg : cop.getArgOperandsMutable()) {
           if (first)
-            effects.emplace_back(::mlir::MemoryEffects::Read::get(), arg,
+            effects.emplace_back(::mlir::MemoryEffects::Read::get(), &arg,
                                  ::mlir::SideEffects::DefaultResource::get());
           else
-            effects.emplace_back(::mlir::MemoryEffects::Write::get(), arg,
+            effects.emplace_back(::mlir::MemoryEffects::Write::get(), &arg,
                                  ::mlir::SideEffects::DefaultResource::get());
           first = false;
         }
@@ -367,19 +367,19 @@ bool collectEffects(Operation *op,
         // Global read
         effects.emplace_back(MemoryEffects::Effect::get<MemoryEffects::Read>());
 
-        for (auto argp : llvm::enumerate(cop.getArgOperands())) {
-          auto arg = argp.value();
+        for (auto argp : llvm::enumerate(cop.getArgOperandsMutable())) {
+          auto &arg = argp.value();
           auto idx = argp.index();
           if (idx == 0) {
-            effects.emplace_back(::mlir::MemoryEffects::Read::get(), arg,
+            effects.emplace_back(::mlir::MemoryEffects::Read::get(), &arg,
                                  ::mlir::SideEffects::DefaultResource::get());
-            effects.emplace_back(::mlir::MemoryEffects::Write::get(), arg,
+            effects.emplace_back(::mlir::MemoryEffects::Write::get(), &arg,
                                  ::mlir::SideEffects::DefaultResource::get());
           } else if (idx == 1) {
-            effects.emplace_back(::mlir::MemoryEffects::Read::get(), arg,
+            effects.emplace_back(::mlir::MemoryEffects::Read::get(), &arg,
                                  ::mlir::SideEffects::DefaultResource::get());
           } else
-            effects.emplace_back(::mlir::MemoryEffects::Write::get(), arg,
+            effects.emplace_back(::mlir::MemoryEffects::Write::get(), &arg,
                                  ::mlir::SideEffects::DefaultResource::get());
         }
 
@@ -389,22 +389,22 @@ bool collectEffects(Operation *op,
         // Global read
         effects.emplace_back(
             MemoryEffects::Effect::get<MemoryEffects::Write>());
-        for (auto arg : cop.getArgOperands()) {
-          effects.emplace_back(::mlir::MemoryEffects::Read::get(), arg,
+        for (auto &arg : cop.getArgOperandsMutable()) {
+          effects.emplace_back(::mlir::MemoryEffects::Read::get(), &arg,
                                ::mlir::SideEffects::DefaultResource::get());
         }
         return true;
       }
       if (*callee == "free") {
-        for (auto arg : cop.getArgOperands()) {
-          effects.emplace_back(::mlir::MemoryEffects::Free::get(), arg,
+        for (auto &arg : cop.getArgOperandsMutable()) {
+          effects.emplace_back(::mlir::MemoryEffects::Free::get(), &arg,
                                ::mlir::SideEffects::DefaultResource::get());
         }
         return true;
       }
       if (*callee == "strlen") {
-        for (auto arg : cop.getArgOperands()) {
-          effects.emplace_back(::mlir::MemoryEffects::Read::get(), arg,
+        for (auto &arg : cop.getArgOperandsMutable()) {
+          effects.emplace_back(::mlir::MemoryEffects::Read::get(), &arg,
                                ::mlir::SideEffects::DefaultResource::get());
         }
         return true;
@@ -1558,6 +1558,7 @@ public:
 
   LogicalResult matchAndRewrite(Memref2PointerOp op,
                                 PatternRewriter &rewriter) const override {
+#if 0
     auto src = op.getSource().getDefiningOp<SubIndexOp>();
     if (!src)
       return failure();
@@ -1598,6 +1599,7 @@ public:
           rewriter.create<Memref2PointerOp>(op.getLoc(), op.getType(),
                                             src.getSource()),
           idx);
+#endif
     return success();
   }
 };
@@ -1918,6 +1920,7 @@ public:
 
   LogicalResult matchAndRewrite(Op op,
                                 PatternRewriter &rewriter) const override {
+#if 0
     Value opPtr = op.getMemref();
     Pointer2MemrefOp src = opPtr.getDefiningOp<polygeist::Pointer2MemrefOp>();
     if (!src)
@@ -1980,6 +1983,7 @@ public:
                                          mt.getElementType(), val, idxs);
     }
     rewrite(op, val, rewriter);
+#endif
     return success();
   }
 };
@@ -2134,7 +2138,7 @@ struct IfAndLazy : public OpRewritePattern<scf::IfOp> {
           return failure();
     }
 
-    rewriter.startRootUpdate(nextIf);
+    rewriter.startOpModification(nextIf);
     nextIf->moveBefore(yield);
     nextIf.getConditionMutable().assign(nextIfCondition);
     for (auto it : llvm::zip(prevIf.getResults(), yield.getOperands())) {
@@ -2142,12 +2146,12 @@ struct IfAndLazy : public OpRewritePattern<scf::IfOp> {
            llvm::make_early_inc_range(std::get<0>(it).getUses()))
         if (nextIf.getThenRegion().isAncestor(
                 use.getOwner()->getParentRegion())) {
-          rewriter.startRootUpdate(use.getOwner());
+          rewriter.startOpModification(use.getOwner());
           use.set(std::get<1>(it));
-          rewriter.finalizeRootUpdate(use.getOwner());
+          rewriter.finalizeOpModification(use.getOwner());
         }
     }
-    rewriter.finalizeRootUpdate(nextIf);
+    rewriter.finalizeOpModification(nextIf);
 
     // Handle else region
     if (!nextIf.getElseRegion().empty()) {
@@ -2259,8 +2263,8 @@ struct MoveIntoIfs : public OpRewritePattern<scf::IfOp> {
         return failure();
     }
 
-    rewriter.startRootUpdate(nextIf);
-    rewriter.startRootUpdate(prevOp);
+    rewriter.startOpModification(nextIf);
+    rewriter.startOpModification(prevOp);
     prevOp->moveBefore(thenUse ? &nextIf.thenBlock()->front()
                                : &nextIf.elseBlock()->front());
     for (OpOperand &use : llvm::make_early_inc_range(prevOp->getUses())) {
@@ -2290,8 +2294,8 @@ struct MoveIntoIfs : public OpRewritePattern<scf::IfOp> {
             storeOp, storeOp.getValue(), storeOp.getMemref(), indices);
       }
     }
-    rewriter.finalizeRootUpdate(prevOp);
-    rewriter.finalizeRootUpdate(nextIf);
+    rewriter.finalizeOpModification(prevOp);
+    rewriter.finalizeOpModification(nextIf);
     return success();
   }
 };
@@ -2859,7 +2863,7 @@ struct InductiveVarRemoval : public OpRewritePattern<scf::ForOp> {
           break;
       }
       if (legal) {
-        rewriter.updateRootInPlace(forOp, [&] {
+        rewriter.modifyOpInPlace(forOp, [&] {
           std::get<1>(tup).replaceAllUsesWith(std::get<2>(tup));
         });
         changed = true;
@@ -3720,7 +3724,7 @@ struct AffineIfSinking : public OpRewritePattern<affine::AffineIfOp> {
     rewriter.setInsertionPointToStart(newIf.getThenBlock());
     for (auto o : llvm::reverse(toSink)) {
       auto nop = rewriter.clone(*o, map);
-      rewriter.replaceOpWithinBlock(o, nop->getResults(), newIf.getThenBlock());
+      rewriter.replaceOpUsesWithinBlock(o, nop->getResults(), newIf.getThenBlock());
     }
     for (auto i : par.getIVs()) {
       i.replaceUsesWithIf(c0, [&](OpOperand &user) {
@@ -3949,14 +3953,14 @@ struct CombineAffineIfs : public OpRewritePattern<affine::AffineIfOp> {
            llvm::make_early_inc_range(std::get<0>(it).getUses())) {
         if (nextThen && nextThen->getParent()->isAncestor(
                             use.getOwner()->getParentRegion())) {
-          rewriter.startRootUpdate(use.getOwner());
+          rewriter.startOpModification(use.getOwner());
           use.set(std::get<1>(it));
-          rewriter.finalizeRootUpdate(use.getOwner());
+          rewriter.finalizeOpModification(use.getOwner());
         } else if (nextElse && nextElse->getParent()->isAncestor(
                                    use.getOwner()->getParentRegion())) {
-          rewriter.startRootUpdate(use.getOwner());
+          rewriter.startOpModification(use.getOwner());
           use.set(std::get<2>(it));
-          rewriter.finalizeRootUpdate(use.getOwner());
+          rewriter.finalizeOpModification(use.getOwner());
         }
       }
 
@@ -4927,7 +4931,7 @@ struct RemoveAffineParallelSingleIter
 
       affineLoop.getRegion().getBlocks().push_back(Tmp);
       if (rewriter.getListener())
-        rewriter.getListener()->notifyBlockCreated(Tmp);
+        rewriter.getListener()->notifyBlockInserted(Tmp, &(affineLoop.getRegion()), affineLoop.getRegion().begin());
 
       rewriter.mergeBlocks(op.getBody(), affineLoop.getBody(), replacements);
       rewriter.replaceOp(op, affineLoop->getResults());
@@ -5092,8 +5096,8 @@ template <typename T> struct BufferElimination : public OpRewritePattern<T> {
 
             assert(otherBuf.getType() == op.getType());
 
-            rewriter.replaceOpWithIf(
-                op, otherBuf, nullptr, [&](OpOperand &use) {
+            rewriter.replaceUsesWithIf(
+                op, otherBuf, [&](OpOperand &use) {
                   Operation *owner = use.getOwner();
                   while (owner &&
                          owner->getBlock() != copyIntoBuffer->getBlock()) {
@@ -5620,7 +5624,7 @@ struct AffineBufferElimination : public OpRewritePattern<T> {
                 // Overwriting the original buffer means that the reload is not
                 // valid.
                 readResourcesT.emplace_back(
-                    ::mlir::MemoryEffects::Read::get(), op,
+                    ::mlir::MemoryEffects::Read::get(), op->getResult(0),
                     ::mlir::SideEffects::DefaultResource::get());
               }
               for (auto res : readResourcesT) {

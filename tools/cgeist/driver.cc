@@ -15,6 +15,7 @@
 #include <clang/Driver/Compilation.h>
 #include <clang/Driver/Driver.h>
 #include <clang/Driver/Tool.h>
+#include <clang/Driver/Options.h>
 #include <clang/Frontend/CompilerInstance.h>
 #include <clang/Frontend/CompilerInvocation.h>
 #include <clang/Frontend/FrontendOptions.h>
@@ -271,7 +272,7 @@ public:
   template <typename... OptSpecifiers> bool hasArg(OptSpecifiers... Ids) const {
     std::vector _Ids({Ids...});
     for (auto &Id : _Ids) {
-      if (Id == clang::driver::options::OPT_nogpulib) {
+      if (Id == clang::driver::options::OPT_anonymous_1734) {
         continue;
       } else if (Id == clang::driver::options::OPT_cuda_path_EQ) {
         if (CUDAPath == "")
@@ -347,12 +348,12 @@ static int ExecuteCC1Tool(SmallVectorImpl<const char *> &ArgV,
   StringRef Tool = ArgV[1];
   void *GetExecutablePathVP = (void *)(intptr_t)GetExecutablePath;
   if (Tool == "-cc1")
-    return cc1_main(makeArrayRef(ArgV).slice(1), ArgV[0], GetExecutablePathVP);
+    return cc1_main(ArrayRef(ArgV).slice(1), ArgV[0], GetExecutablePathVP);
   if (Tool == "-cc1as")
-    return cc1as_main(makeArrayRef(ArgV).slice(2), ArgV[0],
+    return cc1as_main(ArrayRef(ArgV).slice(2), ArgV[0],
                       GetExecutablePathVP);
   if (Tool == "-cc1gen-reproducer")
-    return cc1gen_reproducer_main(makeArrayRef(ArgV).slice(2), ArgV[0],
+    return cc1gen_reproducer_main(ArrayRef(ArgV).slice(2), ArgV[0],
                                   GetExecutablePathVP, ToolContext);
   // Reject unknown tools.
   llvm::errs() << "error: unknown integrated tool '" << Tool << "'. "
@@ -477,23 +478,23 @@ int main(int argc, char **argv) {
       if (ref == "-Wl,--start-group")
         linkOnly = true;
       if (!linkOnly) {
-        if (ref == "-fPIC" || ref == "-c" || ref.startswith("-fsanitize")) {
+        if (ref == "-fPIC" || ref == "-c" || ref.starts_with("-fsanitize")) {
           LinkageArgs.push_back(argv[i]);
         } else if (ref == "-L" || ref == "-l") {
           LinkageArgs.push_back(argv[i]);
           i++;
           LinkageArgs.push_back(argv[i]);
-        } else if (ref.startswith("-L") || ref.startswith("-l") ||
-                   ref.startswith("-Wl")) {
+        } else if (ref.starts_with("-L") || ref.starts_with("-l") ||
+                   ref.starts_with("-Wl")) {
           LinkageArgs.push_back(argv[i]);
         } else if (ref == "-D" || ref == "-I") {
           MLIRArgs.push_back(argv[i]);
           i++;
           MLIRArgs.push_back(argv[i]);
-        } else if (ref.startswith("-D")) {
+        } else if (ref.starts_with("-D")) {
           MLIRArgs.push_back("-D");
           MLIRArgs.push_back(&argv[i][2]);
-        } else if (ref.startswith("-I")) {
+        } else if (ref.starts_with("-I")) {
           MLIRArgs.push_back("-I");
           MLIRArgs.push_back(&argv[i][2]);
         } else if (ref == "-g") {
@@ -651,7 +652,7 @@ int main(int argc, char **argv) {
   bool LinkOMP = FOpenMP;
   pm.enableVerifier(EarlyVerifier);
 
-  pm.addPass(polygeist::createConvertToOpaquePtrPass());
+  // pm.addPass(polygeist::createConvertToOpaquePtrPass());
 
   mlir::OpPassManager &optPM = pm.nest<mlir::func::FuncOp>();
   GreedyRewriteConfig canonicalizerConfig;
@@ -1196,7 +1197,7 @@ int main(int argc, char **argv) {
       }
     }
     llvmModule->setDataLayout(DL);
-    llvmModule->setTargetTriple(triple.getTriple());
+    llvmModule->setTargetTriple(triple);
     if (!EmitAssembly) {
       auto tmpFile =
           llvm::sys::fs::TempFile::create("/tmp/intermediate%%%%%%%.ll");
