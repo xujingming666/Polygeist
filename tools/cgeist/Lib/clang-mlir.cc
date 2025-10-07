@@ -6036,7 +6036,7 @@ static bool parseMLIR(const char *Argv0, std::vector<std::string> filenames,
 
     // Create the actual diagnostics engine.
     auto VFS = llvm::vfs::getRealFileSystem();
-    Clang->createDiagnostics(*VFS, new DiagnosticOptions());
+    Clang->createDiagnostics(*VFS);
     if (!Clang->hasDiagnostics())
       return false;
 

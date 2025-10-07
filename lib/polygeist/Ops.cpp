@@ -1512,12 +1512,34 @@ MutableOperandRange LoadSelect<LLVM::LoadOp>::ptrMutable(LLVM::LoadOp op) {
   return op.getAddrMutable();
 }
 
+struct SelectI1Simplify : public OpRewritePattern<arith::SelectOp> {
+  using OpRewritePattern<arith::SelectOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(arith::SelectOp op,
+                                PatternRewriter &rewriter) const override {
+    if (!op.getType().isInteger(1))
+      return failure();
+
+    Value falseConstant =
+        rewriter.create<arith::ConstantIntOp>(op.getLoc(), true, 1);
+    Value notCondition = rewriter.create<arith::XOrIOp>(
+        op.getLoc(), op.getCondition(), falseConstant);
+
+    Value trueVal = rewriter.create<arith::AndIOp>(
+        op.getLoc(), op.getCondition(), op.getTrueValue());
+    Value falseVal = rewriter.create<arith::AndIOp>(op.getLoc(), notCondition,
+                                                    op.getFalseValue());
+    rewriter.replaceOpWithNewOp<arith::OrIOp>(op, trueVal, falseVal);
+    return success();
+  }
+};
+
 void SubIndexOp::getCanonicalizationPatterns(RewritePatternSet &results,
                                              MLIRContext *context) {
   results.insert<CastOfSubIndex, SubIndex2, SubToCast, SimplifySubViewUsers,
                  SimplifySubIndexUsers, SelectOfCast, SelectOfSubIndex,
                  RedundantDynSubIndex, LoadSelect<memref::LoadOp>,
-                 LoadSelect<affine::AffineLoadOp>, LoadSelect<LLVM::LoadOp>>(
+                 LoadSelect<affine::AffineLoadOp>, LoadSelect<LLVM::LoadOp>, SelectI1Simplify>(
       context);
   // Disabled: SubToSubView
 }
@@ -1558,7 +1580,6 @@ public:
 
   LogicalResult matchAndRewrite(Memref2PointerOp op,
                                 PatternRewriter &rewriter) const override {
-#if 0
     auto src = op.getSource().getDefiningOp<SubIndexOp>();
     if (!src)
       return failure();
@@ -1567,7 +1588,8 @@ public:
       return failure();
 
     Value idx[] = {src.getIndex()};
-    auto PET = op.getType().cast<LLVM::LLVMPointerType>().getElementType();
+    // auto PET = op.getType().cast<LLVM::LLVMPointerType>().getElementType();
+    mlir::Type PET = nullptr;
     auto MET = src.getSource().getType().cast<MemRefType>().getElementType();
     if (PET != MET) {
       Value ps;
@@ -1588,7 +1610,7 @@ public:
     if (PET)
       // non-opaque pointer
       rewriter.replaceOpWithNewOp<LLVM::GEPOp>(
-          op, op.getType(),
+          op, op.getType(), rewriter.getI8Type(),
           rewriter.create<Memref2PointerOp>(op.getLoc(), op.getType(),
                                             src.getSource()),
           idx);
@@ -1599,7 +1621,6 @@ public:
           rewriter.create<Memref2PointerOp>(op.getLoc(), op.getType(),
                                             src.getSource()),
           idx);
-#endif
     return success();
   }
 };
@@ -1920,7 +1941,6 @@ public:
 
   LogicalResult matchAndRewrite(Op op,
                                 PatternRewriter &rewriter) const override {
-#if 0
     Value opPtr = op.getMemref();
     Pointer2MemrefOp src = opPtr.getDefiningOp<polygeist::Pointer2MemrefOp>();
     if (!src)
@@ -1957,7 +1977,7 @@ public:
         return failure();
 
     Value val = src.getSource();
-    assert(val.getType().cast<LLVM::LLVMPointerType>().isOpaque());
+    // assert(val.getType().cast<LLVM::LLVMPointerType>().isOpaque());
 
     Value idx = nullptr;
     auto shape = mt.getShape();
@@ -1983,7 +2003,6 @@ public:
                                          mt.getElementType(), val, idxs);
     }
     rewrite(op, val, rewriter);
-#endif
     return success();
   }
 };
