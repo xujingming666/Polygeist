@@ -29,14 +29,14 @@ void a() {
 
 // CHECK-LABEL:   func.func @_Z1av() 
 // CHECK:           %[[VAL_0:.*]] = arith.constant 1 : i64
-// CHECK:           %[[VAL_1:.*]] = llvm.alloca %[[VAL_0]] x !llvm.struct<(struct<(i8)>)> : (i64) -> !llvm.ptr
+// CHECK:           %[[VAL_1:.*]] = llvm.alloca %[[VAL_0]] x !llvm.struct<(i8)> : (i64) -> !llvm.ptr
 // CHECK:           call @_ZN19basic_ostringstreamC1Ev(%[[VAL_1]]) : (!llvm.ptr) -> ()
 // CHECK:           return
 // CHECK:         }
 
 // CHECK-LABEL:   func.func @_ZN19basic_ostringstreamC1Ev(
 // CHECK-SAME:                                            %[[VAL_0:.*]]: !llvm.ptr) 
-// CHECK:           %[[VAL_1:.*]] = llvm.getelementptr %[[VAL_0]][0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.struct<(struct<(i8)>)>
+// CHECK:           %[[VAL_1:.*]] = llvm.getelementptr %[[VAL_0]][0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.struct<(i8)>
 // CHECK:           call @_ZN12_Alloc_hiderC1Ev(%[[VAL_1]]) : (!llvm.ptr) -> ()
 // CHECK:           %[[VAL_2:.*]] = "polygeist.pointer2memref"(%[[VAL_0]]) : (!llvm.ptr) -> memref<?xi8>
 // CHECK:           call @_Z4run2Pv(%[[VAL_2]]) : (memref<?xi8>) -> ()
