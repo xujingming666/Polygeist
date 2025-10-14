@@ -77,7 +77,7 @@ static inline mlir::Type getValuePtrType(mlir::Value value) {
   }
 
   value.dump();
-  assert(false && "getValuePtrType, can not get element type ");
-
+  // assert(false && "getValuePtrType, can not get element type ");
+  llvm::errs() << " getValuePtrType, can not get element type \n";
   return nullptr;
 }

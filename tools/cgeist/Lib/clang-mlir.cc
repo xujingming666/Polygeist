@@ -3297,7 +3297,10 @@ ValueCategory MLIRScanner::CommonFieldLookup(mlir::Location loc,
 
   if (isLLVMStructABI(rd, ST)) {
     auto &layout = Glob.CGM.getTypes().getCGRecordLayout(rd);
-    fnum = layout.getLLVMFieldNo(FD);
+    if (layout.containsFieldDecl(FD))
+      fnum = layout.getLLVMFieldNo(FD);
+    else
+      fnum = 0;
   } else {
     fnum = 0;
     if (CXRD)
@@ -3339,8 +3342,9 @@ ValueCategory MLIRScanner::CommonFieldLookup(mlir::Location loc,
   auto PT = val.getType().cast<mlir::LLVM::LLVMPointerType>();
   mlir::Value vec[] = {builder.create<ConstantIntOp>(loc, 0, 32),
                        builder.create<ConstantIntOp>(loc, fnum, 32)};
-  // auto ValueType = Glob.typeTranslator.translateType(anonymize(getLLVMType(CT)));
   auto ValueType = getValuePtrType(val);
+  if (ValueType == nullptr) 
+    ValueType = Glob.typeTranslator.translateType(anonymize(getLLVMType(CT)));
   if (!ValueType
            .isa<mlir::LLVM::LLVMStructType, mlir::LLVM::LLVMArrayType>()) {
     llvm::errs() << "function: " << function << "\n";
