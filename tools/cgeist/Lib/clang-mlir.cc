@@ -659,7 +659,7 @@ ValueCategory MLIRScanner::VisitTypeTraitExpr(clang::TypeTraitExpr *expr) {
   auto ty = getMLIRType(expr->getType()).cast<mlir::IntegerType>();
   return ValueCategory(
       builder.create<arith::ConstantIntOp>(getMLIRLocation(expr->getExprLoc()),
-                                           expr->getAPValue().getInt().getExtValue(), ty),
+                                           expr->getValue(), ty),
       /*isReference*/ false);
 }
 

@@ -272,7 +272,7 @@ public:
   template <typename... OptSpecifiers> bool hasArg(OptSpecifiers... Ids) const {
     std::vector _Ids({Ids...});
     for (auto &Id : _Ids) {
-      if (Id == clang::driver::options::OPT_anonymous_1734) {
+      if (Id == clang::driver::options::OPT_nogpulib) {
         continue;
       } else if (Id == clang::driver::options::OPT_cuda_path_EQ) {
         if (CUDAPath == "")
@@ -1197,7 +1197,7 @@ int main(int argc, char **argv) {
       }
     }
     llvmModule->setDataLayout(DL);
-    llvmModule->setTargetTriple(triple);
+    llvmModule->setTargetTriple(triple.getTriple());
     if (!EmitAssembly) {
       auto tmpFile =
           llvm::sys::fs::TempFile::create("/tmp/intermediate%%%%%%%.ll");

@@ -322,7 +322,7 @@ struct Pointer2MemrefOpLowering
       return success();
     }
 
-    auto descr = MemRefDescriptor::poison(rewriter, loc, convertedType);
+    auto descr = MemRefDescriptor::undef(rewriter, loc, convertedType);
     auto ptr = rewriter.create<LLVM::BitcastOp>(
         op.getLoc(), descr.getElementPtrType(), adaptor.getSource());
 
@@ -2461,7 +2461,7 @@ public:
         auto type = attribution.getType().cast<MemRefType>();
         auto descr = MemRefDescriptor::fromStaticShape(
             rewriter, loc, *getTypeConverter(), type, memory);
-        signatureConversion.remapInput(numProperArguments + en.index(), llvm::ArrayRef<mlir::Value>{descr});
+        signatureConversion.remapInput(numProperArguments + en.index(), descr);
       }
 
       // Rewrite private memory attributions to alloca'ed buffers.
@@ -2489,7 +2489,7 @@ public:
         auto descr = MemRefDescriptor::fromStaticShape(
             rewriter, loc, *getTypeConverter(), type, allocated);
         signatureConversion.remapInput(
-            numProperArguments + numWorkgroupAttributions + en.index(), llvm::ArrayRef<mlir::Value>{descr});
+            numProperArguments + numWorkgroupAttributions + en.index(), descr);
       }
     }
 
