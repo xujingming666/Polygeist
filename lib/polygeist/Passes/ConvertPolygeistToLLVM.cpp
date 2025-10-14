@@ -2483,7 +2483,9 @@ public:
         Value numElements = rewriter.create<LLVM::ConstantOp>(
             gpuFuncOp.getLoc(), int64Ty, type.getNumElements());
         Value allocated = rewriter.create<LLVM::AllocaOp>(
-            gpuFuncOp.getLoc(), ptrType, type.getElementType(), numElements, /*alignment=*/0);
+            gpuFuncOp.getLoc(), ptrType, 
+            typeConverter->convertType(type.getElementType()).template cast<Type>(), 
+            numElements, /*alignment=*/0);
         auto descr = MemRefDescriptor::fromStaticShape(
             rewriter, loc, *getTypeConverter(), type, allocated);
         signatureConversion.remapInput(
@@ -2637,10 +2639,11 @@ public:
             callOp.getLoc(), "failed to convert callee signature");
       }
     }
-
+    
+    // clang 21 has bug for original CallOp build.
     auto newCallOp = rewriter.create<LLVM::CallOp>(
-        callOp->getLoc(), callResultTypes, adaptor.getOperands(),
-        callOp->getAttrs());
+        callOp->getLoc(), callResultTypes, callOp.getCallee(), adaptor.getOperands()/*,
+        callOp->getAttrs()*/);
 
     if (numResults <= 1) {
       rewriter.replaceOp(callOp, newCallOp->getResults());

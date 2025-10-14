@@ -40,13 +40,13 @@ void make() {
 // CHECK-SAME:                            %[[VAL_0:[A-Za-z0-9_]*]]: memref<?x!llvm.struct<(struct<(i8)>, struct<(i8)>)>>,
 // CHECK-SAME:                            %[[VAL_1:[A-Za-z0-9_]*]]: i32,
 // CHECK-SAME:                            %[[VAL_2:[A-Za-z0-9_]*]]: f64)
+// CHECK:           %[[VAL_7:[A-Za-z0-9_]*]] = llvm.mlir.addressof @str0 : !llvm.ptr
 // CHECK:           %[[VAL_3:[A-Za-z0-9_]*]] = "polygeist.memref2pointer"(%[[VAL_0]]) : (memref<?x!llvm.struct<(struct<(i8)>, struct<(i8)>)>>) -> !llvm.ptr
 // CHECK:           %[[VAL_4:[A-Za-z0-9_]*]] = "polygeist.pointer2memref"(%[[VAL_3]]) : (!llvm.ptr) -> memref<?x!llvm.struct<(i8)>>
 // CHECK:           call @_ZN4RootC1Ei(%[[VAL_4]], %[[VAL_1]]) : (memref<?x!llvm.struct<(i8)>>, i32) -> ()
 // CHECK:           %[[VAL_5:[A-Za-z0-9_]*]] = llvm.getelementptr %[[VAL_3]][0, 1] : (!llvm.ptr) -> !llvm.ptr, !llvm.struct<(struct<(i8)>, struct<(i8)>)>
 // CHECK:           %[[VAL_6:[A-Za-z0-9_]*]] = "polygeist.pointer2memref"(%[[VAL_5]]) : (!llvm.ptr) -> memref<?x!llvm.struct<(i8)>>
 // CHECK:           call @_ZN5FRootC1Ev(%[[VAL_6]]) : (memref<?x!llvm.struct<(i8)>>) -> ()
-// CHECK:           %[[VAL_7:[A-Za-z0-9_]*]] = llvm.mlir.addressof @str0 : !llvm.ptr
 // CHECK:           %[[VAL_8:[A-Za-z0-9_]*]] = "polygeist.pointer2memref"(%[[VAL_7]]) : (!llvm.ptr) -> memref<?xi8>
 // CHECK:           call @_Z5printPc(%[[VAL_8]]) : (memref<?xi8>) -> ()
 // CHECK:           return

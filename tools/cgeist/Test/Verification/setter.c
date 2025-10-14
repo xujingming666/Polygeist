@@ -17,8 +17,8 @@ void kernel_deriche() {
 // CHECK-NEXT:  }
 
 // CHECK:  func @kernel_deriche()
-// CHECK-NEXT:    %[[V0:.+]] = memref.alloca() : memref<1xi32>
 // CHECK-NEXT:    %[[V1:.+]] = llvm.mlir.undef : i32
+// CHECK-NEXT:    %[[V0:.+]] = memref.alloca() : memref<1xi32>
 // CHECK-NEXT:    affine.store %[[V1]], %[[V0]][0] : memref<1xi32>
 // CHECK-NEXT:    %[[V2:.+]] = memref.cast %[[V0]] : memref<1xi32> to memref<?xi32>
 // CHECK-NEXT:    call @sub0(%[[V2]]) : (memref<?xi32>) -> ()

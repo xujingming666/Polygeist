@@ -16,8 +16,8 @@ void div_(int* sizes) {
 
 // CHECK-LABEL:   func.func @_Z4div_Pi(
 // CHECK-SAME:                         %[[VAL_0:[A-Za-z0-9_]*]]: memref<?xi32>)
-// CHECK:           %[[VAL_1:[A-Za-z0-9_]*]] = arith.constant 0 : index
 // CHECK:           %[[VAL_2:[A-Za-z0-9_]*]] = arith.constant 1 : index
+// CHECK:           %[[VAL_1:[A-Za-z0-9_]*]] = arith.constant 0 : index
 // CHECK:           %[[VAL_3:[A-Za-z0-9_]*]] = arith.constant 16 : index
 // CHECK:           %[[VAL_4:[A-Za-z0-9_]*]] = memref.alloca() : memref<25x!llvm.struct<(i32, f64)>>
 // CHECK:           %[[VAL_5:[A-Za-z0-9_]*]] = memref.get_global @MAX_DIMS : memref<1xi32>

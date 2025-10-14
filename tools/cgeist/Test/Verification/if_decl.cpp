@@ -16,6 +16,6 @@ int main() {
 }
 
 // CHECK:   func.func @_ZN1A10getPointerEv(
-// CHECK:   "polygeist.memref2pointer"
 // CHECK:   llvm.mlir.zero
+// CHECK:   "polygeist.memref2pointer"
 // CHECK:   llvm.icmp "ne"

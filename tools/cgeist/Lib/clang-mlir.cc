@@ -150,7 +150,7 @@ ValueCategory MLIRScanner::getComplexPartRef(mlir::Location loc,
                           builder.create<ConstantIntOp>(loc, fnum, 32)};
     return ValueCategory(
         builder.create<mlir::LLVM::GEPOp>(
-            loc, mlir::LLVM::LLVMPointerType::get(builder.getContext(), PT.getAddressSpace()), ET, 
+            loc, mlir::LLVM::LLVMPointerType::get(builder.getContext(), PT.getAddressSpace()), getValuePtrType(val), 
             val, vec),
         /*isReference*/ true);
   } else {
@@ -353,14 +353,14 @@ void MLIRScanner::init(mlir::func::FuncOp function, const FunctionDecl *fd) {
       }
       assert(field && "initialiation expression must apply to a field");
       if (auto AILE = dyn_cast<ArrayInitLoopExpr>(expr->getInit())) {
-        VisitArrayInitLoop(AILE, CommonFieldLookup(loc, CC->getThisType(),
+        VisitArrayInitLoop(AILE, CommonFieldLookup(loc, CC->getThisType()->getPointeeType(),
                                                    field, ThisVal.val,
                                                    /*isLValue*/ false));
         continue;
       }
       if (auto cons = dyn_cast<CXXConstructExpr>(expr->getInit())) {
         VisitConstructCommon(cons, /*name*/ nullptr, /*space*/ 0,
-                             CommonFieldLookup(loc, CC->getThisType(),
+                             CommonFieldLookup(loc, CC->getThisType()->getPointeeType(),
                                                field, ThisVal.val,
                                                /*isLValue*/ false)
                                  .val);
@@ -381,7 +381,7 @@ void MLIRScanner::init(mlir::func::FuncOp function, const FunctionDecl *fd) {
       }
 
       auto cfl =
-          CommonFieldLookup(loc, CC->getThisType(), field, ThisVal.val,
+          CommonFieldLookup(loc, CC->getThisType()->getPointeeType(), field, ThisVal.val,
                             /*isLValue*/ false);
       assert(cfl.val);
       cfl.store(loc, builder, initexpr, isArray);
@@ -613,7 +613,7 @@ MLIRScanner::VisitExtVectorElementExpr(clang::ExtVectorElementExpr *expr) {
   if (const auto pt = dyn_cast<LLVM::LLVMPointerType>(et)) {
     auto pt0 = getValuePtrType(base.val).cast<mlir::LLVM::LLVMArrayType>().getElementType();
     base.val = builder.create<mlir::LLVM::GEPOp>(
-        exprLoc, mlir::LLVM::LLVMPointerType::get(builder.getContext(), pt.getAddressSpace()), pt0,
+        exprLoc, mlir::LLVM::LLVMPointerType::get(builder.getContext(), pt.getAddressSpace()), getValuePtrType(base.val),
         base.val, idxs);
 
     result = ValueCategory(base.val, true);
@@ -881,7 +881,7 @@ mlir::Attribute MLIRScanner::InitializeValueByInitListExpr(mlir::Value toInit,
               builder.create<ConstantIntOp>(loc, i, 32),
           };
           next = builder.create<LLVM::GEPOp>(
-              loc, LLVM::LLVMPointerType::get(builder.getContext(), PT.getAddressSpace()), nextType,
+              loc, LLVM::LLVMPointerType::get(builder.getContext(), PT.getAddressSpace()), ET,
               toInit, idxs);
         }
 
@@ -1247,7 +1247,7 @@ ValueCategory MLIRScanner::VisitLambdaExpr(clang::LambdaExpr *expr) {
   mlir::Type t = Glob.getMLIRType(expr->getCallOperator()->getThisType());
 
   bool isArray = false;
-  Glob.getMLIRType(expr->getCallOperator()->getThisType(), &isArray);
+  Glob.getMLIRType(expr->getCallOperator()->getThisType()->getPointeeType(), &isArray);
 
   if (auto PT = dyn_cast<mlir::LLVM::LLVMPointerType>(t)) {
     LLVMABI = true;
@@ -1283,7 +1283,7 @@ ValueCategory MLIRScanner::VisitLambdaExpr(clang::LambdaExpr *expr) {
           FieldDecl *field = Captures[VD];
           result = CommonFieldLookup(
               loc,
-              cast<CXXMethodDecl>(EmittingFunctionDecl)->getThisType(),
+              cast<CXXMethodDecl>(EmittingFunctionDecl)->getThisType()->getPointeeType(),
               field, ThisVal.val, /*isLValue*/ false);
           assert(CaptureKinds.find(VD) != CaptureKinds.end());
           if (CaptureKinds[VD] == LambdaCaptureKind::LCK_ByRef)
@@ -1306,7 +1306,7 @@ ValueCategory MLIRScanner::VisitLambdaExpr(clang::LambdaExpr *expr) {
     Glob.getMLIRType(field->getType(), &isArray);
 
     if (CK == LambdaCaptureKind::LCK_ByCopy)
-      CommonFieldLookup(loc, expr->getCallOperator()->getThisType(),
+      CommonFieldLookup(loc, expr->getCallOperator()->getThisType()->getPointeeType(),
                         field, op,
                         /*isLValue*/ false)
           .store(loc, builder, result, isArray);
@@ -1326,7 +1326,7 @@ ValueCategory MLIRScanner::VisitLambdaExpr(clang::LambdaExpr *expr) {
             val);
       }
 
-      CommonFieldLookup(loc, expr->getCallOperator()->getThisType(),
+      CommonFieldLookup(loc, expr->getCallOperator()->getThisType()->getPointeeType(),
                         field, op,
                         /*isLValue*/ false)
           .store(loc, builder, val);
@@ -1653,7 +1653,7 @@ ValueCategory MLIRScanner::CommonArrayToPointer(mlir::Location loc,
         getValuePtrType(scalar.val).cast<mlir::LLVM::LLVMArrayType>().getElementType();
     return ValueCategory(
         builder.create<mlir::LLVM::GEPOp>(
-            loc, mlir::LLVM::LLVMPointerType::get(builder.getContext(), PT.getAddressSpace()), ET,
+            loc, mlir::LLVM::LLVMPointerType::get(builder.getContext(), PT.getAddressSpace()), getValuePtrType(scalar.val),
             scalar.val, vec),
         /*isReference*/ false);
   }
@@ -2940,6 +2940,7 @@ ValueCategory MLIRScanner::VisitBinaryOperator(clang::BinaryOperator *BO) {
     }
     auto lhs_v = lhs.getValue(loc, builder);
     auto rhs_v = rhs.getValue(loc, builder);
+    mlir::Type lhs_ptr_type = nullptr;
     if (auto mt = dyn_cast<mlir::MemRefType>(lhs_v.getType())) {
       mlir::Type innerType = mt.getElementType();
       auto shape = mt.getShape();
@@ -2947,6 +2948,7 @@ ValueCategory MLIRScanner::VisitBinaryOperator(clang::BinaryOperator *BO) {
         innerType = LLVM::LLVMArrayType::get(innerType, shape[i]);
       lhs_v = builder.create<polygeist::Memref2PointerOp>(
           loc, LLVM::LLVMPointerType::get(builder.getContext()), lhs_v);
+      lhs_ptr_type = innerType;
     }
     if (auto mt = dyn_cast<mlir::MemRefType>(rhs_v.getType())) {
       mlir::Type innerType = mt.getElementType();
@@ -2962,11 +2964,13 @@ ValueCategory MLIRScanner::VisitBinaryOperator(clang::BinaryOperator *BO) {
                            /*isReference*/ false);
     } else if (auto pt =
                    dyn_cast<mlir::LLVM::LLVMPointerType>(lhs_v.getType())) {
+      if (lhs_ptr_type == nullptr)
+          lhs_ptr_type = getValuePtrType(lhs_v);
       if (auto IT = dyn_cast<mlir::IntegerType>(rhs_v.getType())) {
         mlir::Value vals[1] = {builder.create<SubIOp>(
             loc, builder.create<ConstantIntOp>(loc, 0, IT.getWidth()), rhs_v)};
         return ValueCategory(
-            builder.create<LLVM::GEPOp>(loc, lhs_v.getType(), getValuePtrType(lhs_v), lhs_v,
+            builder.create<LLVM::GEPOp>(loc, lhs_v.getType(), lhs_ptr_type, lhs_v,
                                         ArrayRef<mlir::Value>(vals)),
             false);
       }
@@ -2982,7 +2986,7 @@ ValueCategory MLIRScanner::VisitBinaryOperator(clang::BinaryOperator *BO) {
               loc, val.getType(),
               builder.create<polygeist::TypeSizeOp>(
                   loc, builder.getIndexType(),
-                  mlir::TypeAttr::get(getValuePtrType(lhs_v)))));
+                  mlir::TypeAttr::get(lhs_ptr_type))));
       return ValueCategory(val, /*isReference*/ false);
     } else {
       return ValueCategory(builder.create<SubIOp>(loc, lhs_v, rhs_v),
@@ -3335,7 +3339,9 @@ ValueCategory MLIRScanner::CommonFieldLookup(mlir::Location loc,
   auto PT = val.getType().cast<mlir::LLVM::LLVMPointerType>();
   mlir::Value vec[] = {builder.create<ConstantIntOp>(loc, 0, 32),
                        builder.create<ConstantIntOp>(loc, fnum, 32)};
-  if (!getValuePtrType(val)
+  // auto ValueType = Glob.typeTranslator.translateType(anonymize(getLLVMType(CT)));
+  auto ValueType = getValuePtrType(val);
+  if (!ValueType
            .isa<mlir::LLVM::LLVMStructType, mlir::LLVM::LLVMArrayType>()) {
     llvm::errs() << "function: " << function << "\n";
     // rd->dump();
@@ -3345,13 +3351,13 @@ ValueCategory MLIRScanner::CommonFieldLookup(mlir::Location loc,
                  << " ST: " << *ST << "\n";
   }
   mlir::Type ET;
-  if (auto ST = dyn_cast<mlir::LLVM::LLVMStructType>(getValuePtrType(val))) {
+  if (auto ST = dyn_cast<mlir::LLVM::LLVMStructType>(ValueType)) {
     ET = ST.getBody()[fnum];
   } else {
-    ET = getValuePtrType(val).cast<mlir::LLVM::LLVMArrayType>().getElementType();
+    ET = ValueType.cast<mlir::LLVM::LLVMArrayType>().getElementType();
   }
   mlir::Value commonGEP = builder.create<mlir::LLVM::GEPOp>(
-      loc, mlir::LLVM::LLVMPointerType::get(builder.getContext(), PT.getAddressSpace()), ET, val,
+      loc, mlir::LLVM::LLVMPointerType::get(builder.getContext(), PT.getAddressSpace()), ValueType, val,
       vec);
 
   bool isArray = false;
@@ -3386,8 +3392,8 @@ ValueCategory MLIRScanner::CommonFieldLookup(mlir::Location loc,
   }
   if (isLValue)
     commonGEP =
-        ValueCategory(commonGEP, /*isReference*/ true).getValue(loc, builder);
-  return ValueCategory(commonGEP, /*isReference*/ true);
+        ValueCategory(commonGEP, /*isReference*/ true, ET).getValue(loc, builder);
+  return ValueCategory(commonGEP, /*isReference*/ true, ET);
 }
 
 ValueCategory MLIRScanner::VisitDeclRefExpr(DeclRefExpr *E) {
@@ -3412,7 +3418,7 @@ ValueCategory MLIRScanner::VisitDeclRefExpr(DeclRefExpr *E) {
     if (Captures.find(VD) != Captures.end()) {
       FieldDecl *field = Captures[VD];
       auto res = CommonFieldLookup(
-          loc, cast<CXXMethodDecl>(EmittingFunctionDecl)->getThisType(),
+          loc, cast<CXXMethodDecl>(EmittingFunctionDecl)->getThisType()->getPointeeType(),
           field, ThisVal.val,
           isa<clang::ReferenceType>(
               field->getType()->getUnqualifiedDesugaredType()));
@@ -3514,7 +3520,7 @@ MLIRScanner::VisitCXXDefaultInitExpr(clang::CXXDefaultInitExpr *expr) {
   Glob.getMLIRType(expr->getExpr()->getType(), &isArray);
 
   auto cfl = CommonFieldLookup(
-      loc, cast<CXXMethodDecl>(EmittingFunctionDecl)->getThisType(),
+      loc, cast<CXXMethodDecl>(EmittingFunctionDecl)->getThisType()->getPointeeType(),
       expr->getField(), ThisVal.val, /*isLValue*/ false);
   assert(cfl.val);
   cfl.store(loc, builder, toset, isArray);
@@ -3644,7 +3650,7 @@ mlir::Value MLIRScanner::GetAddressOfDerivedClass(
     }
 
     mlir::Value idx[] = {Offset};
-    ptr = builder.create<LLVM::GEPOp>(loc, ptr.getType(), getValuePtrType(ptr), ptr, idx);
+    ptr = builder.create<LLVM::GEPOp>(loc, ptr.getType(), builder.getI8Type(), ptr, idx);
 
     if (auto PT = dyn_cast<mlir::LLVM::LLVMPointerType>(nt))
       value = builder.create<LLVM::BitcastOp>(
@@ -3742,7 +3748,7 @@ mlir::Value MLIRScanner::GetAddressOfBaseClass(
         }
 
         value = builder.create<LLVM::GEPOp>(
-            loc, LLVM::LLVMPointerType::get(builder.getContext(), PT.getAddressSpace()), ET, value,
+            loc, LLVM::LLVMPointerType::get(builder.getContext(), PT.getAddressSpace()), getValuePtrType(value), value,
             idx);
       }
     }
@@ -5109,7 +5115,7 @@ MLIRASTConsumer::GetOrCreateMLIRFunction(const FunctionDecl *FD,
       auto t = getMLIRType(CC->getThisType());
 
       bool isArray = false; // isa<clang::ArrayType>(CC->getThisType());
-      getMLIRType(CC->getThisType(), &isArray);
+      getMLIRType(CC->getThisType()->getPointeeType(), &isArray);
       if (auto mt = dyn_cast<MemRefType>(t)) {
         auto shape = std::vector<int64_t>(mt.getShape());
         // shape[0] = 1;
@@ -6082,8 +6088,8 @@ static bool parseMLIR(const char *Argv0, std::vector<std::string> filenames,
           StringAttr::get(module->getContext(),
                           Clang->getTarget().getDataLayoutString()));
 
-      // module.get()->setAttr(("dlti." + DataLayoutSpecAttr::kAttrKeyword).str(),
-      //                       translateDataLayout(DL, module->getContext()));
+      module.get()->setAttr(("dlti." + DataLayoutSpecAttr::getMnemonic()).str(),
+                            translateDataLayout(DL, module->getContext()));
 
       // Add target-cpu and target-features attributes to functions. If
       // we have a decl for the function and it has a target attribute then

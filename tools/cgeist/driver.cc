@@ -652,7 +652,7 @@ int main(int argc, char **argv) {
   bool LinkOMP = FOpenMP;
   pm.enableVerifier(EarlyVerifier);
 
-  // pm.addPass(polygeist::createConvertToOpaquePtrPass());
+  pm.addPass(polygeist::createConvertToOpaquePtrPass());
 
   mlir::OpPassManager &optPM = pm.nest<mlir::func::FuncOp>();
   GreedyRewriteConfig canonicalizerConfig;

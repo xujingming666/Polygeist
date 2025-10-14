@@ -113,12 +113,12 @@ mcomplex *baz() {
 
 // STRUCT-LABEL:   func.func @_Z4castCf(
 // STRUCT-SAME:                         %[[VAL_0:[A-Za-z0-9_]*]]: !llvm.struct<(f32, f32)>) -> f64  
+// STRUCT:           %[[VAL_6:[A-Za-z0-9_]*]] = llvm.mlir.undef : !llvm.struct<(f64, f64)>
 // STRUCT:           %[[VAL_1:[A-Za-z0-9_]*]] = memref.alloca() : memref<1x!llvm.struct<(f64, f64)>>
 // STRUCT:           %[[VAL_2:[A-Za-z0-9_]*]] = llvm.extractvalue %[[VAL_0]][0] : !llvm.struct<(f32, f32)>
 // STRUCT:           %[[VAL_3:[A-Za-z0-9_]*]] = arith.extf %[[VAL_2]] : f32 to f64
 // STRUCT:           %[[VAL_4:[A-Za-z0-9_]*]] = llvm.extractvalue %[[VAL_0]][1] : !llvm.struct<(f32, f32)>
 // STRUCT:           %[[VAL_5:[A-Za-z0-9_]*]] = arith.extf %[[VAL_4]] : f32 to f64
-// STRUCT:           %[[VAL_6:[A-Za-z0-9_]*]] = llvm.mlir.undef : !llvm.struct<(f64, f64)>
 // STRUCT:           %[[VAL_7:[A-Za-z0-9_]*]] = llvm.insertvalue %[[VAL_3]], %[[VAL_6]][0] : !llvm.struct<(f64, f64)>
 // STRUCT:           %[[VAL_8:[A-Za-z0-9_]*]] = llvm.insertvalue %[[VAL_5]], %[[VAL_7]][1] : !llvm.struct<(f64, f64)>
 // STRUCT:           affine.store %[[VAL_8]], %[[VAL_1]][0] : memref<1x!llvm.struct<(f64, f64)>>
@@ -134,8 +134,8 @@ mcomplex *baz() {
 // STRUCT-LABEL:   func.func @_Z12imag_literalv() -> f32  
 // STRUCT-DAG:           %[[VAL_0:[A-Za-z0-9_]*]] = arith.constant 3.000000e+00 : f32
 // STRUCT-DAG:           %[[VAL_1:[A-Za-z0-9_]*]] = arith.constant 1.000000e+01 : f32
-// STRUCT:           %[[VAL_2:[A-Za-z0-9_]*]] = memref.alloca() : memref<1x!llvm.struct<(f32, f32)>>
 // STRUCT:           %[[VAL_3:[A-Za-z0-9_]*]] = llvm.mlir.undef : !llvm.struct<(f32, f32)>
+// STRUCT:           %[[VAL_2:[A-Za-z0-9_]*]] = memref.alloca() : memref<1x!llvm.struct<(f32, f32)>>
 // STRUCT:           %[[VAL_4:[A-Za-z0-9_]*]] = llvm.insertvalue %[[VAL_1]], %[[VAL_3]][0] : !llvm.struct<(f32, f32)>
 // STRUCT:           %[[VAL_5:[A-Za-z0-9_]*]] = llvm.insertvalue %[[VAL_0]], %[[VAL_4]][1] : !llvm.struct<(f32, f32)>
 // STRUCT:           affine.store %[[VAL_5]], %[[VAL_2]][0] : memref<1x!llvm.struct<(f32, f32)>>
@@ -149,10 +149,10 @@ mcomplex *baz() {
 // STRUCT:         }
 
 // STRUCT-LABEL:   func.func @_Z13imag_literal2v() -> f32  
+// STRUCT:           %[[VAL_3:[A-Za-z0-9_]*]] = llvm.mlir.undef : !llvm.struct<(f32, f32)>
 // STRUCT-DAG:           %[[VAL_0:[A-Za-z0-9_]*]] = arith.constant 3.000000e+00 : f32
 // STRUCT-DAG:           %[[VAL_1:[A-Za-z0-9_]*]] = arith.constant 0.000000e+00 : f32
 // STRUCT:           %[[VAL_2:[A-Za-z0-9_]*]] = memref.alloca() : memref<1x!llvm.struct<(f32, f32)>>
-// STRUCT:           %[[VAL_3:[A-Za-z0-9_]*]] = llvm.mlir.undef : !llvm.struct<(f32, f32)>
 // STRUCT:           %[[VAL_4:[A-Za-z0-9_]*]] = llvm.insertvalue %[[VAL_1]], %[[VAL_3]][0] : !llvm.struct<(f32, f32)>
 // STRUCT:           %[[VAL_5:[A-Za-z0-9_]*]] = llvm.insertvalue %[[VAL_0]], %[[VAL_4]][1] : !llvm.struct<(f32, f32)>
 // STRUCT:           affine.store %[[VAL_5]], %[[VAL_2]][0] : memref<1x!llvm.struct<(f32, f32)>>
@@ -168,8 +168,8 @@ mcomplex *baz() {
 // STRUCT-LABEL:   func.func @_Z3addv() -> f32  
 // STRUCT-DAG:           %[[VAL_0:[A-Za-z0-9_]*]] = arith.constant 4.000000e+01 : f32
 // STRUCT-DAG:           %[[VAL_1:[A-Za-z0-9_]*]] = arith.constant 7.000000e+00 : f32
-// STRUCT:           %[[VAL_2:[A-Za-z0-9_]*]] = memref.alloca() : memref<1x!llvm.struct<(f32, f32)>>
 // STRUCT:           %[[VAL_3:[A-Za-z0-9_]*]] = llvm.mlir.undef : !llvm.struct<(f32, f32)>
+// STRUCT:           %[[VAL_2:[A-Za-z0-9_]*]] = memref.alloca() : memref<1x!llvm.struct<(f32, f32)>>
 // STRUCT:           %[[VAL_4:[A-Za-z0-9_]*]] = llvm.insertvalue %[[VAL_0]], %[[VAL_3]][0] : !llvm.struct<(f32, f32)>
 // STRUCT:           %[[VAL_5:[A-Za-z0-9_]*]] = llvm.insertvalue %[[VAL_1]], %[[VAL_4]][1] : !llvm.struct<(f32, f32)>
 // STRUCT:           affine.store %[[VAL_5]], %[[VAL_2]][0] : memref<1x!llvm.struct<(f32, f32)>>
@@ -187,8 +187,8 @@ mcomplex *baz() {
 // STRUCT-DAG:           %[[VAL_1:[A-Za-z0-9_]*]] = arith.constant 3.000000e+01 : f32
 // STRUCT-DAG:           %[[VAL_2:[A-Za-z0-9_]*]] = arith.constant 5.000000e+00 : f32
 // STRUCT-DAG:           %[[VAL_3:[A-Za-z0-9_]*]] = arith.constant 1.000000e+01 : f32
-// STRUCT:           %[[VAL_4:[A-Za-z0-9_]*]] = memref.alloca() : memref<1x!llvm.struct<(f32, f32)>>
 // STRUCT:           %[[VAL_5:[A-Za-z0-9_]*]] = llvm.mlir.undef : !llvm.struct<(f32, f32)>
+// STRUCT:           %[[VAL_4:[A-Za-z0-9_]*]] = memref.alloca() : memref<1x!llvm.struct<(f32, f32)>>
 // STRUCT:           %[[VAL_6:[A-Za-z0-9_]*]] = llvm.insertvalue %[[VAL_1]], %[[VAL_5]][0] : !llvm.struct<(f32, f32)>
 // STRUCT:           %[[VAL_7:[A-Za-z0-9_]*]] = llvm.insertvalue %[[VAL_0]], %[[VAL_6]][1] : !llvm.struct<(f32, f32)>
 // STRUCT:           affine.store %[[VAL_7]], %[[VAL_4]][0] : memref<1x!llvm.struct<(f32, f32)>>

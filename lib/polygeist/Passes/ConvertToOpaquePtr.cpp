@@ -43,9 +43,19 @@ static LogicalResult convertPtrsToOpaque(Operation *op, Operation *&rewritten,
   OperationState state(op->getLoc(), op->getName());
   state.addOperands(operands);
   state.addTypes(convertedResultTypes);
-  state.addAttributes(op->getAttrs());
-  if (attr)
-    state.addAttribute(kElemTypeAttrName, attr);
+  llvm::SmallVector<mlir::NamedAttribute> attrs;
+  for (auto opAttr : op->getAttrs()) {
+    if (opAttr.getName() == kElemTypeAttrName) {
+      if (attr) {
+        attrs.push_back(rewriter.getNamedAttr(kElemTypeAttrName, attr));
+        continue;
+      }
+    }
+    attrs.push_back(opAttr);
+  }
+  state.addAttributes(attrs);
+  // if (attr)
+  //   state.addAttribute(kElemTypeAttrName, attr);
   state.addSuccessors(op->getSuccessors());
   for (unsigned i = 0, e = op->getNumRegions(); i < e; ++i)
     state.addRegion();
@@ -55,6 +65,7 @@ static LogicalResult convertPtrsToOpaque(Operation *op, Operation *&rewritten,
   for (unsigned i = 0, e = op->getNumRegions(); i < e; ++i)
     rewriter.inlineRegionBefore(op->getRegion(i), rewritten->getRegion(i),
                                 rewritten->getRegion(i).begin());
+  
   return success();
 }
 
@@ -102,7 +113,7 @@ struct FuncOpConversion : public OpConversionPattern<func::FuncOp> {
     auto convertedType = FunctionType::get(
         rewriter.getContext(), signatureConversion.getConvertedTypes(),
         convertedResultTypes);
-
+    
     auto newFuncOp = rewriter.create<func::FuncOp>(
         funcOp.getLoc(), funcOp.getName(), convertedType,
         funcOp.getSymVisibilityAttr(), funcOp.getArgAttrsAttr(),
@@ -168,18 +179,16 @@ struct AllocaConversion : public OpConversionPattern<LLVM::AllocaOp> {
   LogicalResult
   matchAndRewrite(LLVM::AllocaOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-#if 0
     Operation *rewritten;
     auto resTy = op.getRes().getType();
-    assert(!resTy.isOpaque());
+    // assert(!resTy.isOpaque());
     TypeAttr elty =
-        TypeAttr::get(getTypeConverter()->convertType(resTy.getElementType()));
+        TypeAttr::get(getTypeConverter()->convertType(op.getElemType()));
     if (convertPtrsToOpaque(op, rewritten, elty, adaptor.getOperands(),
                             rewriter, getTypeConverter())
             .failed())
       return failure();
     rewriter.replaceOp(op, rewritten->getResults());
-#endif
     return success();
   }
 };
@@ -189,13 +198,10 @@ struct GEPConversion : public OpConversionPattern<LLVM::GEPOp> {
   LogicalResult
   matchAndRewrite(LLVM::GEPOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-#if 0
     Operation *rewritten;
     TypeAttr elty = nullptr;
-    if (!op->getAttr(kElemTypeAttrName))
-      elty = TypeAttr::get(getTypeConverter()->convertType(
-          dyn_cast<LLVM::LLVMPointerType>(op.getOperand(0).getType())
-              .getElementType()));
+    if (op->getAttr(kElemTypeAttrName))
+      elty = TypeAttr::get(getTypeConverter()->convertType(op.getElemType()));
     if (convertPtrsToOpaque(op, rewritten, elty, adaptor.getOperands(),
                             rewriter, getTypeConverter())
             .failed())
@@ -203,7 +209,6 @@ struct GEPConversion : public OpConversionPattern<LLVM::GEPOp> {
     rewriter.replaceOp(op, rewritten->getResults());
     assert(op.getResult().getType() != rewriter.getI32Type());
     rewritten->removeAttr(todoAttr);
-#endif
     return success();
   }
 };
@@ -224,7 +229,7 @@ struct ConvertToOpaquePtrPass
         return isOpOpaque(op);
     });
 
-    std::map<StringRef, LLVM::LLVMStructType> typeCache;
+    std::map<std::string, LLVM::LLVMStructType> typeCache;
     TypeConverter converter;
     converter.addConversion([&](Type ty) -> Type {
       if (auto pt = dyn_cast<LLVM::LLVMPointerType>(ty)) {
@@ -235,9 +240,9 @@ struct ConvertToOpaquePtrPass
                                converter.convertType(mt.getElementType()),
                                mt.getLayout(), mt.getMemorySpace());
       } else if (auto st = dyn_cast<LLVM::LLVMStructType>(ty)) {
-        StringRef key = "";
+        std::string key = "";
         if (st.isIdentified()) {
-          key = st.getName();
+          key = st.getName().str();
           if (typeCache.find(key) != typeCache.end()) {
             return typeCache[key];
           }
@@ -246,12 +251,13 @@ struct ConvertToOpaquePtrPass
         if (st.isIdentified()) {
           typeCache[key] = LLVM::LLVMStructType::getIdentified(
               &getContext(), "opaque@" + st.getName().str());
+          typeCache["opaque@" + st.getName().str()] = typeCache[key];
         }
         for (auto ty : st.getBody()) {
-          StringRef fieldKey = "";
+          std::string fieldKey = "";
           if (auto fieldST = dyn_cast<LLVM::LLVMStructType>(ty)) {
             if (fieldST.isIdentified())
-              fieldKey = fieldST.getName();
+              fieldKey = fieldST.getName().str();
           }
           if (typeCache.find(fieldKey) != typeCache.end()) {
             bodyTypes.push_back(typeCache[fieldKey]);

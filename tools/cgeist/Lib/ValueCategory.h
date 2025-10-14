@@ -17,11 +17,13 @@ class ValueCategory {
 public:
   mlir::Value val;
   bool isReference;
+  mlir::Type ptrType;
 
 public:
-  ValueCategory() : val(nullptr), isReference(false){};
-  ValueCategory(std::nullptr_t) : val(nullptr), isReference(false){};
+  ValueCategory() : val(nullptr), isReference(false), ptrType(nullptr) {};
+  ValueCategory(std::nullptr_t) : val(nullptr), isReference(false), ptrType(nullptr) {};
   ValueCategory(mlir::Value val, bool isReference);
+  ValueCategory(mlir::Value val, bool isReference, mlir::Type type) : ValueCategory(val, isReference)  { ptrType = type; }
 
   // TODO: rename to 'loadVariable'? getValue seems to generic.
   mlir::Value getValue(mlir::Location loc, mlir::OpBuilder &builder) const;

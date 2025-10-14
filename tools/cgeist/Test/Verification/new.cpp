@@ -57,8 +57,8 @@ int foo() {
 // CHECK-SAME:                    %[[VAL_1:[A-Za-z0-9_]*]]: memref<?xmemref<?xi8>>) -> i32
 // CHECK:           %[[VAL_2:[A-Za-z0-9_]*]] = arith.constant 2.000000e+00 : f64
 // CHECK:           %[[VAL_3:[A-Za-z0-9_]*]] = arith.constant 1.000000e+00 : f64
-// CHECK:           %[[VAL_4:[A-Za-z0-9_]*]] = arith.constant 0 : i32
 // CHECK:           %[[VAL_5:[A-Za-z0-9_]*]] = llvm.mlir.addressof @str0 : !llvm.ptr
+// CHECK:           %[[VAL_4:[A-Za-z0-9_]*]] = arith.constant 0 : i32
 // CHECK:           %[[VAL_6:[A-Za-z0-9_]*]] = llvm.getelementptr %[[VAL_5]][0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.array<20 x i8>
 // CHECK:           %[[VAL_7:[A-Za-z0-9_]*]] = llvm.call @printf(%[[VAL_6]], %[[VAL_3]], %[[VAL_2]]) vararg(!llvm.func<i32 (ptr, ...)>) : (!llvm.ptr, f64, f64) -> i32
 // CHECK:           return %[[VAL_4]] : i32

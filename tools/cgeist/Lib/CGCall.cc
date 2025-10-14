@@ -289,7 +289,7 @@ ValueCategory MLIRScanner::CallHelper(
                 ET,
                 builder.create<LLVM::GEPOp>(
                     loc, LLVM::LLVMPointerType::get(builder.getContext(), PT.getAddressSpace()),
-                    ET,
+                    getValuePtrType(val),
                     val, idx)));
       }
     }
@@ -327,7 +327,7 @@ ValueCategory MLIRScanner::CallHelper(
                 ET,
                 builder.create<LLVM::GEPOp>(
                     loc, LLVM::LLVMPointerType::get(builder.getContext(), PT.getAddressSpace()),
-                    ET,
+                    getValuePtrType(val),
                     val, idx)));
       }
     }
@@ -1729,9 +1729,10 @@ ValueCategory MLIRScanner::VisitCallExpr(clang::CallExpr *expr) {
       //  CT = Glob.CGM.getContext().getLValueReferenceType(CT);
       SmallVector<mlir::Type> RTs = {rt};
       // getMLIRType(CT)};
-
-      auto ft = getValuePtrType(args[0])
-                    .cast<LLVM::LLVMFunctionType>();
+      
+      // convert VarArg to fixed Arg number in call.
+      // in clang20 version, VarArg is convert to fixed arg in convertPtrsToOpaque.
+      auto ft = LLVM::LLVMFunctionType::get(rt, argtys);
       auto ETy = expr->getCallee()->getType()->getUnqualifiedDesugaredType();
       ETy = cast<clang::PointerType>(ETy)
                 ->getPointeeType()
@@ -1777,7 +1778,7 @@ ValueCategory MLIRScanner::VisitCallExpr(clang::CallExpr *expr) {
             abuilder.setInsertionPointToStart(allocationScope);
             auto one = abuilder.create<ConstantIntOp>(loc, 1, 64);
             auto alloc = abuilder.create<mlir::LLVM::AllocaOp>(
-                loc, sub.val.getType(), LLVM::LLVMPointerType::get(builder.getContext()), one, 0);
+                loc, LLVM::LLVMPointerType::get(builder.getContext()), sub.val.getType(), one, 0);
             ValueCategory(alloc, /*isRef*/ true)
                 .store(loc, builder, sub, /*isArray*/ false);
             sub = ValueCategory(alloc, /*isRef*/ true);
@@ -1852,7 +1853,7 @@ ValueCategory MLIRScanner::VisitCallExpr(clang::CallExpr *expr) {
                     builder.create<LLVM::GEPOp>(
                         loc,
                         LLVM::LLVMPointerType::get(builder.getContext(), PT.getAddressSpace()),
-                        ET,
+                        getValuePtrType(val),
                         val, idx)));
           }
         }
@@ -1892,7 +1893,7 @@ ValueCategory MLIRScanner::VisitCallExpr(clang::CallExpr *expr) {
                     builder.create<LLVM::GEPOp>(
                         loc,
                         LLVM::LLVMPointerType::get(builder.getContext(), PT.getAddressSpace()),
-                        ET,
+                        getValuePtrType(val),
                         val, idx)));
           }
         }
@@ -1917,7 +1918,7 @@ ValueCategory MLIRScanner::VisitCallExpr(clang::CallExpr *expr) {
         builder.setInsertionPointToStart(&op.getRegion().front());
       }
 
-      called = builder.create<mlir::LLVM::CallOp>(loc, RTs, args).getResult();
+      called = builder.create<mlir::LLVM::CallOp>(loc, ft, args).getResult();
       if (PTF.getReturnType() != ft.getReturnType()) {
         called = builder.create<polygeist::Pointer2MemrefOp>(
             loc, PTF.getReturnType(), called);
