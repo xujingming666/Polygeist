@@ -6021,15 +6021,14 @@ static bool parseMLIR(const char *Argv0, std::vector<std::string> filenames,
 
   MLIRAction Act(fn, module);
 
-  for (auto &job : Jobs) {
+  for (auto &job : llvm::reverse(Jobs)) {
     std::unique_ptr<CompilerInstance> Clang(new CompilerInstance());
-
+    
     Command *cmd = cast<Command>(&job);
-    if (strcmp(cmd->getCreator().getName(), "clang"))
-      return false;
-
+    if (strcmp(cmd->getCreator().getName(), "clang")) {
+      continue;
+    }
     const ArgStringList *args = &cmd->getArguments();
-
     Success = CompilerInvocation::CreateFromArgs(Clang->getInvocation(), *args,
                                                  Diags);
     Clang->getInvocation().getFrontendOpts().DisableFree = false;

@@ -25,11 +25,11 @@ void start(double* w) {
 // CHECK:   func.func @_Z5startPd(%arg0: memref<?xf64>)
 // CHECK-NEXT:     %cst = arith.constant 2.000000e+00 : f64
 // CHECK-NEXT:     %c0 = arith.constant 0 : index
-// CHECK-NEXT:     %c20 = arith.constant 20 : index
 // CHECK-NEXT:     %c1 = arith.constant 1 : index
+// CHECK-NEXT:     %c20 = arith.constant 20 : index
 // CHECK-NEXT:     scf.parallel (%arg1) = (%c0) to (%c20) step (%c1) {
 // CHECK-NEXT:       memref.store %cst, %arg0[%arg1] : memref<?xf64>
-// CHECK-NEXT:       scf.yield
+// CHECK-NEXT:       scf.reduce
 // CHECK-NEXT:     }
 // CHECK-NEXT:     return
 // CHECK-NEXT:   }

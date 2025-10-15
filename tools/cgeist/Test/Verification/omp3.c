@@ -23,7 +23,7 @@ void square(double* x) {
 // CHECK-NEXT:       %[[V3:.+]] = arith.index_cast %[[V2]] : i32 to index
 // CHECK-NEXT:       %[[V4:.+]] = arith.sitofp %[[V2]] : i32 to f64
 // CHECK-NEXT:       memref.store %[[V4]], %[[arg0]][%[[V3]]] : memref<?xf64>
-// CHECK-NEXT:       scf.yield
+// CHECK-NEXT:       scf.reduce
 // CHECK-NEXT:     }
 // CHECK-NEXT:     return
 // CHECK-NEXT:   }

@@ -37,7 +37,7 @@ void square2(double** x, int sstart, int send, int sinc, int tstart, int tend, i
 // CHECK-NEXT:       %[[V21:.+]] = arith.addi %[[V18]], %[[V19]] : i64
 // CHECK-NEXT:       %[[V22:.+]] = arith.sitofp %[[V21]] : i64 to f64
 // CHECK-NEXT:       memref.store %[[V22]], %[[V20]][%[[arg8]]] : memref<?xf64>
-// CHECK-NEXT:       scf.yield
+// CHECK-NEXT:       scf.reduce
 // CHECK-NEXT:     }
 // CHECK-NEXT:     return
 // CHECK-NEXT:   }
