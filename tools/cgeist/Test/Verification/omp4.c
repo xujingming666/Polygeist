@@ -33,5 +33,5 @@ void square(double* x, int ss) {
 // CHECK-NEXT:       %[[a9:.+]] = arith.index_cast %[[a8]] : i32 to index
 // CHECK-NEXT:       %[[a10:.+]] = arith.sitofp %[[a8]] : i32 to f64
 // CHECK-NEXT:       memref.store %[[a10:.+]], %[[arg0]][%[[a9]]] : memref<?xf64>
-// CHECK-NEXT:       scf.yield
+// CHECK-NEXT:       scf.reduce
 // CHECK-NEXT:     }

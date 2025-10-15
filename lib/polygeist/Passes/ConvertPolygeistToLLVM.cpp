@@ -1151,7 +1151,7 @@ public:
     StringAttr section = nullptr;
     auto newGlobal = rewriter.replaceOpWithNewOp<LLVM::GlobalOp>(
         globalOp, convertedType, globalOp.getConstant(), linkage, globalOp.getSymName(),
-        initialValue, alignment.getUInt(), originalType.getMemorySpaceAsInt(), dso_local, thread_local_);
+        initialValue, alignment ? alignment.getUInt() : 0, originalType.getMemorySpaceAsInt(), dso_local, thread_local_);
     if (!globalOp.isExternal() && globalOp.isUninitialized()) {
       Block *block =
           rewriter.createBlock(&newGlobal.getInitializerRegion(),

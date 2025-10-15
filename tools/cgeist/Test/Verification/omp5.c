@@ -15,7 +15,7 @@ void square(double* x, int sstart, int send, int sinc) {
 // CHECK-NEXT:       %[[V2:.+]] = arith.index_cast %[[arg4]] : index to i32
 // CHECK-NEXT:       %[[V3:.+]] = arith.sitofp %[[V2]] : i32 to f64
 // CHECK-NEXT:       memref.store %[[V3]], %[[arg0]][%[[arg4]]] : memref<?xf64>
-// CHECK-NEXT:       scf.yield
+// CHECK-NEXT:       scf.reduce
 // CHECK-NEXT:     }
 // CHECK-NEXT:     return
 // CHECK-NEXT:   }
