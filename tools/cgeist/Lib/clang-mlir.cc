@@ -352,7 +352,7 @@ void MLIRScanner::init(mlir::func::FuncOp function, const FunctionDecl *fd) {
       ValueCategory(alloc, /*isReference*/ true)
           .store(getMLIRLocation(parm->getBeginLoc()), builder, val);
     }
-    if (function.getArgAttr(i, "output")) {
+    if (function.getArgAttr(i, polygeist::PolygeistDialect::getOutputAttrName())) {
       outputArgs.push_back(parm);
     }
     i++;
@@ -1702,7 +1702,8 @@ ValueCategory MLIRScanner::VisitConstructCommon(clang::CXXConstructExpr *cons,
     llvm::SmallVector<mlir::Value, 4> args;
     for (auto a : cons->arguments())
       args.push_back(Visit(a).getValue(loc, builder));
-    mlir::Value vectorValue = builder.create<tensor::FromElementsOp>(loc, args);
+    auto vectorType = RankedTensorType::get({args.size()}, args[0].getType(), builder.getI64IntegerAttr(0));
+    mlir::Value vectorValue = builder.create<tensor::FromElementsOp>(loc, vectorType, args);
     return ValueCategory(vectorValue, /*isReference*/ true);
   }
 
@@ -2041,13 +2042,14 @@ MLIRScanner::EmitTensorCallOps(clang::CallExpr *expr) {
     if (memrefType) {
       int dim = memrefType.getShape().size();
       std::vector<int64_t> shape(dim, ShapedType::kDynamic);
-      auto tensorType = RankedTensorType::get(shape, memrefType.getElementType());
+      auto tensorType = UnrankedTensorType::get(memrefType.getElementType());
       argValues[0] = builder.create<mlir::bufferization::ToTensorOp>(loc, tensorType, argValues[0], true, true);
     }
 
     int dim = dyn_cast<mlir::RankedTensorType>(argValues[1].getType()).getShape()[0];
     std::vector<int64_t> shape(dim, ShapedType::kDynamic);
-    auto tensorType = RankedTensorType::get(shape, memrefType.getElementType());
+    auto tensorType = RankedTensorType::get(shape, memrefType.getElementType(), 
+                        builder.getI64IntegerAttr(memrefType.getMemorySpaceAsInt()));
     mlir::Value reshapeTensor = builder.create<mlir::tensor::ReshapeOp>(loc, tensorType, argValues[0], argValues[1]);
     
     auto retValue = ValueCategory(reshapeTensor, true);
@@ -2077,8 +2079,8 @@ MLIRScanner::EmitTensorCallOps(clang::CallExpr *expr) {
         dynamicShapes.push_back(mValue);
       }
     }
-    auto allocTensor = builder.create<tensor::EmptyOp>(loc, 
-                        lhsShape, elementType, dynamicShapes);
+    auto tensorType = RankedTensorType::get(lhsShape, elementType, builder.getI64IntegerAttr(0));
+    auto allocTensor = builder.create<tensor::EmptyOp>(loc, tensorType, dynamicShapes);
     auto matmul_result = builder.create<linalg::ElemwiseBinaryOp>(loc, TypeRange{lhsType},
                                     ValueRange{argValues[0], argValues[1]}, ValueRange{allocTensor},
                                     linalg::BinaryFnAttr::get(builder.getContext(), linalg::BinaryFn::add),
@@ -2835,8 +2837,8 @@ ValueCategory MLIRScanner::VisitTensorCXXOperatorCallExpr(clang::CXXOperatorCall
           dynamicShapes.push_back(mValue);
         }
       }
-      auto allocTensor = builder.create<tensor::EmptyOp>(loc, 
-                          lhsShape, elementType, dynamicShapes);
+      auto tensorType = RankedTensorType::get(lhsShape, elementType, builder.getI64IntegerAttr(0));
+      auto allocTensor = builder.create<tensor::EmptyOp>(loc, tensorType, dynamicShapes);
       auto matmul_result = builder.create<linalg::ElemwiseBinaryOp>(loc, TypeRange{lhsType},
                                       ValueRange{lhsValue, rhsValue}, ValueRange{allocTensor},
                                       linalg::BinaryFnAttr::get(builder.getContext(), linalg::BinaryFn::add),
@@ -5475,7 +5477,7 @@ MLIRASTConsumer::GetOrCreateMLIRFunction(const FunctionDecl *FD,
     }
     names.push_back(parm->getName().str());
     outputFlags.push_back(parm->hasAttr<clang::AnnotateAttr>() &&
-                          parm->getAttr<clang::AnnotateAttr>()->getAnnotation() == polygeist::PolygeistDialect::getOutputAttrName());
+                          parm->getAttr<clang::AnnotateAttr>()->getAnnotation() == "output");
   }
 
   bool isArrayReturn = false;

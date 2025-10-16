@@ -20,7 +20,7 @@ def Polygeist_Dialect : Dialect {
   let description = [{}];
   let cppNamespace = "::mlir::polygeist";
     let extraClassDeclaration = [{
-    static StringRef getOutputAttrName() { return "output"; }
+    static StringRef getOutputAttrName() { return "polygeist.output"; }
   }];
   let useDefaultAttributePrinterParser = 1;
 }
