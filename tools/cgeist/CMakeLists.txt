@@ -30,6 +30,8 @@ add_clang_executable(cgeist
   Lib/IfScope.cc
   Lib/TypeUtils.cc
   Lib/CGCall.cc 
+  Lib/CGTensorCall.cc 
+  Lib/CGTensorOperator.cc 
   Lib/Prelude.cc 
 )
 if(POLYGEIST_ENABLE_CUDA)
