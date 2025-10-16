@@ -10,7 +10,13 @@
 #define BFV_BFVDIALECT_H
 
 #include "mlir/IR/Dialect.h"
+#include "mlir/IR/BuiltinTypes.h"
+#include "mlir/Support/TypeID.h"
 
 #include "polygeist/PolygeistOpsDialect.h.inc"
+
+
+#define GET_ATTRDEF_CLASSES
+#include "polygeist/PolygeistAttributes.h.inc"
 
 #endif // BFV_BFVDIALECT_H

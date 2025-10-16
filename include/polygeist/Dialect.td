@@ -19,6 +19,10 @@ def Polygeist_Dialect : Dialect {
   let name = "polygeist";
   let description = [{}];
   let cppNamespace = "::mlir::polygeist";
+    let extraClassDeclaration = [{
+    static StringRef getOutputAttrName() { return "output"; }
+  }];
+  let useDefaultAttributePrinterParser = 1;
 }
 
 //===----------------------------------------------------------------------===//
@@ -27,5 +31,18 @@ def Polygeist_Dialect : Dialect {
 
 class Polygeist_Op<string mnemonic, list<Trait> traits = []>
     : Op<Polygeist_Dialect, mnemonic, traits>;
+
+class Polygeist_Attr<string name, string attrMnemonic,
+                list<Trait> traits = [],
+                string baseCppClass = "::mlir::Attribute">
+    : AttrDef<Polygeist_Dialect, name, traits, baseCppClass> {
+  let mnemonic = attrMnemonic;
+}
+
+def OutputAttr : Polygeist_Attr<"Output", "output"> {
+  let parameters = (ins "int":$offset);
+  let assemblyFormat = "`<` $offset `>`";
+}
+
 
 #endif // POLYGEIST_DIALECT

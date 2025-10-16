@@ -145,5 +145,5 @@ add_custom_target(PreludeInternal DEPENDS PreludeInternal.h.inc)
 add_dependencies(cgeist PreludeInternal)
 
 target_link_libraries(cgeist PRIVATE ${CGEIST_LIBS})
-add_dependencies(cgeist MLIRPolygeistOpsIncGen MLIRPolygeistPassIncGen)
+add_dependencies(cgeist MLIRPolygeistOpsIncGen MLIRPolygeistPassIncGen PolygeistAttributesIncGen)
 add_subdirectory(Test)

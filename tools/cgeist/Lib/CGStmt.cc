@@ -898,7 +898,8 @@ ValueCategory MLIRScanner::VisitIfStmt(clang::IfStmt *stmt) {
     auto type = Glob.getMLIRType(decl->getType());
     types.push_back(type);
   }
-  hasElseRegion = !types.empty();
+  if (!hasElseRegion)
+    hasElseRegion = !types.empty();
   auto ifOp = builder.create<mlir::scf::IfOp>(loc, types, cond, hasElseRegion);
 
   std::map<const clang::ValueDecl *, ValueCategory> ifYieldParams, elseYieldParams;
@@ -928,8 +929,6 @@ ValueCategory MLIRScanner::VisitIfStmt(clang::IfStmt *stmt) {
         elseYieldValues.push_back(elseYieldParams[decl].getValue(loc, builder));
       else {
         elseYieldValues.push_back(getLocalValue(decl).getValue(loc, builder));
-        decl->dump();
-        getLocalValue(decl).getValue(loc, builder).dump();
       }
     }
     builder.create<scf::YieldOp>(loc, elseYieldValues);

@@ -9,6 +9,8 @@
 #include "polygeist/Dialect.h"
 #include "mlir/IR/DialectImplementation.h"
 #include "polygeist/Ops.h"
+#include "llvm/ADT/TypeSwitch.h"
+#include "mlir/Support/TypeID.h"
 
 using namespace mlir;
 using namespace mlir::polygeist;
@@ -22,6 +24,13 @@ void PolygeistDialect::initialize() {
 #define GET_OP_LIST
 #include "polygeist/PolygeistOps.cpp.inc"
       >();
+  addAttributes<
+#define GET_ATTRDEF_LIST
+#include "polygeist/PolygeistAttributes.cpp.inc"
+    >();
 }
 
 #include "polygeist/PolygeistOpsDialect.cpp.inc"
+
+#define GET_ATTRDEF_CLASSES
+#include "polygeist/PolygeistAttributes.cpp.inc"

@@ -395,7 +395,7 @@ public:
 
   ValueCategory VisitCallExpr(clang::CallExpr *expr);
   
-  ValueCategory VisitCXXOperatorCallExpr(clang::CXXOperatorCallExpr *expr);
+  ValueCategory VisitTensorCXXOperatorCallExpr(clang::CXXOperatorCallExpr *expr);
 
   ValueCategory
   CallHelper(mlir::func::FuncOp tocall, QualType objType,
