@@ -263,6 +263,9 @@ static cl::opt<bool> PMEnablePrinting(
     "pm-enable-printing", cl::init(false),
     cl::desc("Enable printing of IR before and after all passes"));
 
+static cl::opt<bool> EnableMac("enable-mac", cl::init(false),
+                          cl::desc("Enable mac"));
+
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 
 class PolygeistCudaDetectorArgList : public llvm::opt::ArgList {

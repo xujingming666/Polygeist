@@ -31,7 +31,7 @@ static std::string prelude =
 std::string createPreludeFile() {
   int fd = 0;
   SmallVector<char, 4> tmpFilePath;
-  auto ec = sys::fs::createTemporaryFile("topscc", "h", fd, tmpFilePath);
+  auto ec = sys::fs::createTemporaryFile("mac", "h", fd, tmpFilePath);
   if (ec) {
     errs() << "failed to create temporary file\n";
     return {};

@@ -2025,9 +2025,8 @@ MLIRScanner::EmitTensorCallOps(clang::CallExpr *expr) {
   auto loc = getMLIRLocation(expr->getExprLoc());
   auto fd = getCallee(expr->getCallee());
 
-  if (!fd) {
-    emitError(loc) << "cannot find function \n";
-    return make_pair(ValueCategory(), true);
+  if (!fd || !fd->getIdentifier()) {
+    return make_pair(ValueCategory(), false);
   }
 
   if (fd->getName() == "to_tensor") {
@@ -2806,7 +2805,7 @@ ValueCategory MLIRScanner::VisitTensorBinaryOperator(clang::BinaryOperator *BO) 
   return ValueCategory();
 }
 
-ValueCategory MLIRScanner::VisitCXXOperatorCallExpr(clang::CXXOperatorCallExpr *BO) {
+ValueCategory MLIRScanner::VisitTensorCXXOperatorCallExpr(clang::CXXOperatorCallExpr *BO) {
   auto loc = getMLIRLocation(BO->getExprLoc());
   auto retType = getMLIRType(BO->getType());
 
@@ -5465,7 +5464,7 @@ MLIRASTConsumer::GetOrCreateMLIRFunction(const FunctionDecl *FD,
     }
     names.push_back(parm->getName().str());
     outputFlags.push_back(parm->hasAttr<clang::AnnotateAttr>() &&
-                          parm->getAttr<clang::AnnotateAttr>()->getAnnotation() == "output");
+                          parm->getAttr<clang::AnnotateAttr>()->getAnnotation() == polygeist::PolygeistDialect::getOutputAttrName());
   }
 
   bool isArrayReturn = false;
@@ -5522,7 +5521,7 @@ MLIRASTConsumer::GetOrCreateMLIRFunction(const FunctionDecl *FD,
   for (unsigned i=0; i<outputFlags.size(); ++i) {
     // set the output attribute if it has
     if (outputFlags[i])
-      function.setArgAttr(i, "output", builder.getUnitAttr());
+      function.setArgAttr(i, polygeist::PolygeistDialect::getOutputAttrName(), polygeist::OutputAttr::get(builder.getContext(), 0));
   }
 
   functions[name] = function;
@@ -5566,7 +5565,6 @@ void MLIRASTConsumer::run() {
     MLIRScanner ms(*this, module, LTInfo);
     ms.init(GetOrCreateMLIRFunction(FD), FD);
   }
-  module->dump();
 }
 
 void MLIRASTConsumer::HandleDeclContext(DeclContext *DC) {
@@ -6352,11 +6350,11 @@ static bool parseMLIR(const char *Argv0, std::vector<std::string> filenames,
     Argv.push_back("-include");
     Argv.emplace_back(Include);
   }
-
   // Add prelude include
   auto tmpFilePath = createPreludeFile();
   FileCleanup cleanup(tmpFilePath);
-  {
+
+  if (EnableMac) {
     char *chars = (char *)malloc(tmpFilePath.length() + 1);
     memcpy(chars, tmpFilePath.data(), tmpFilePath.length());
     chars[tmpFilePath.length()] = 0;

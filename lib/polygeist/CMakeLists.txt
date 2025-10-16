@@ -7,6 +7,7 @@ ${PROJECT_SOURCE_DIR}/include/polygeist
 
 DEPENDS
 MLIRPolygeistOpsIncGen
+PolygeistAttributesIncGen
 
 LINK_LIBS PUBLIC
 MLIRIR

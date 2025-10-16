@@ -622,7 +622,7 @@ ValueCategory MLIRScanner::VisitCallExpr(clang::CallExpr *expr) {
   if (auto *oc = dyn_cast<CXXOperatorCallExpr>(expr)) {
     auto retType = getMLIRType(expr->getType());
     if (isa<mlir::RankedTensorType>(retType)) {
-      return VisitCXXOperatorCallExpr(oc);
+      return VisitTensorCXXOperatorCallExpr(oc);
     }
 
     if (oc->getOperator() == clang::OO_EqualEqual) {
