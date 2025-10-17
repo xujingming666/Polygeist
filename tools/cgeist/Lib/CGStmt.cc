@@ -895,7 +895,8 @@ ValueCategory MLIRScanner::VisitIfStmt(clang::IfStmt *stmt) {
   llvm::SmallVector<mlir::Type> types;
   decls = getModifyDecls(stmt, Glob);
   for (auto decl : decls) {
-    auto type = Glob.getMLIRType(decl->getType());
+    // auto type = Glob.getMLIRType(decl->getType());
+    auto type = getLocalValue(decl).getValue(loc, builder).getType();
     types.push_back(type);
   }
   if (!hasElseRegion)

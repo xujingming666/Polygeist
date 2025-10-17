@@ -142,6 +142,7 @@ struct MLIRASTConsumer : public ASTConsumer {
                          bool allowMerge = true);
 
   llvm::Type *getLLVMType(clang::QualType t);
+  unsigned getMemorySpace(clang::QualType t);
 
   mlir::Location getMLIRLocation(clang::SourceLocation loc);
 };

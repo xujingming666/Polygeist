@@ -530,12 +530,11 @@ void MLIRScanner::init(mlir::func::FuncOp function, const FunctionDecl *fd) {
       }
       
       if (auto tensorType = dyn_cast<mlir::RankedTensorType>(retValue.getType())) {
-        auto memrefType = MemRefType::get(tensorType.getShape(), tensorType.getElementType());
+        auto memrefType = MemRefType::get(tensorType.getShape(), tensorType.getElementType(), 
+                              MemRefLayoutAttrInterface(), builder.getI64IntegerAttr(1));
         retValue = builder.create<bufferization::ToMemrefOp>(loc, memrefType, retValue);
-        retValue = builder.create<memref::CastOp>(loc, retType, retValue);
-      } else if (retValue.getType() != function.getFunctionType().getResults()[i+idxOffset]) {
-        retValue = builder.create<memref::CastOp>(loc, retType, retValue);
       }
+      retValue = builder.create<memref::CastOp>(loc, retType, retValue);
       retValues.push_back(retValue);
       i++;
     }
@@ -5357,8 +5356,10 @@ MLIRASTConsumer::GetOrCreateMLIRFunction(const FunctionDecl *FD,
 
   for (unsigned i = 0; i < outputFlags.size(); ++i) {
     // set the output attribute if it has
-    if (outputFlags[i])
-      rettypes.push_back(types[i]);
+    if (outputFlags[i]) {
+      auto elementType = dyn_cast<mlir::MemRefType>(types[i]).getElementType();
+      rettypes.push_back(UnrankedMemRefType::get(elementType, 1));
+    }
   }
 
   mlir::OpBuilder builder(module->getContext());
@@ -5654,10 +5655,33 @@ static bool isRecursiveStruct(const clang::RecordType *RT) {
   return isRecursiveStructImpl(RT, seen);
 }
 
+unsigned MLIRASTConsumer::getMemorySpace(clang::QualType qt) {
+  // check the memory space qualifier
+  unsigned memorySpace = 0;
+  if (qt.hasQualifiers()) {
+    clang::Qualifiers qualifiers = qt.getQualifiers();
+    if (qualifiers.hasAddressSpace()) {
+      memorySpace = qualifiers.getAddressSpaceAttributePrintValue();
+    }
+  }
+  if (isa<clang::PointerType>(qt)) {
+    return getMemorySpace(cast<clang::PointerType>(qt)
+                          ->getPointeeType());
+  }
+  if (isa<clang::ReferenceType>(qt)) {
+    return getMemorySpace(cast<clang::ReferenceType>(qt)
+                          ->getPointeeType());
+  }
+  return memorySpace;
+}
+
 mlir::Type MLIRASTConsumer::getMLIRType(clang::QualType qt, bool *implicitRef,
                                         bool allowMerge) {
   if (qt.isNull())
       return nullptr;
+
+  unsigned memorySpace = getMemorySpace(qt);
+
   if (auto ET = dyn_cast<clang::ElaboratedType>(qt)) {
     return getMLIRType(ET->getNamedType(), implicitRef, allowMerge);
   }
@@ -5736,6 +5760,7 @@ mlir::Type MLIRASTConsumer::getMLIRType(clang::QualType qt, bool *implicitRef,
     }
     assert(!RT->getDecl()->isInvalidDecl());
     if (isTensorType(*RT)) {
+      assert(false, "it can not be used for rank > 1");
       if (implicitRef)
         *implicitRef = true;
       auto TS = dyn_cast<clang::ClassTemplateSpecializationDecl>(RT->getDecl());
@@ -6018,7 +6043,12 @@ mlir::Type MLIRASTConsumer::getMLIRType(clang::QualType qt, bool *implicitRef,
       }
 
     assert(!subRef);
-    return mlir::MemRefType::get({outer}, subType);
+    if (memorySpace) {
+      mlir::OpBuilder builder(module->getContext());
+      return mlir::MemRefType::get({outer}, subType, 
+              MemRefLayoutAttrInterface(), builder.getI64IntegerAttr(memorySpace));
+    } else
+      return mlir::MemRefType::get({outer}, subType);
   }
 
   if (t->isBuiltinType() || isa<clang::EnumType>(t)) {

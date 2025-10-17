@@ -23,6 +23,12 @@ using namespace mlir;
 using namespace mlir::arith;
 using namespace mlirclang;
 
+
+mlir::Value getConstantIndexValue(OpBuilder &builder, Location loc, int64_t value) {
+  auto indexValue = builder.create<arith::ConstantOp>(loc, builder.getI64IntegerAttr(value));
+  return builder.create<arith::IndexCastOp>(loc, builder.getIndexType(), indexValue);
+}
+
 const clang::FunctionDecl *getCallee(const clang::Expr *E) {
   E = E->IgnoreParens();
   // Look through function-to-pointer decay.
@@ -70,7 +76,7 @@ MLIRScanner::EmitTensorCallOps(clang::CallExpr *expr) {
 
     auto memrefType = dyn_cast<mlir::MemRefType>(argValues[0].getType());
     if (memrefType) {
-      int dim = memrefType.getShape().size();
+      int64_t dim = memrefType.getShape().size();
       std::vector<int64_t> shape(dim, ShapedType::kDynamic);
       auto tensorType = UnrankedTensorType::get(memrefType.getElementType());
       argValues[0] = builder.create<mlir::bufferization::ToTensorOp>(loc, tensorType, argValues[0], true, true);
@@ -90,6 +96,75 @@ MLIRScanner::EmitTensorCallOps(clang::CallExpr *expr) {
     }
     // reference value would not trigger alloc.
     return make_pair(retValue, true);
+  }
+
+  if (fd->getName() == "mac_load") {
+    llvm::SmallVector<mlir::Value, 4> argValues;
+    for (clang::Expr *argExpr : llvm::ArrayRef<clang::Expr *>(expr->getArgs(), expr->getNumArgs())) {
+      argValues.push_back(
+        Visit(argExpr).getValue(loc, builder));
+    }
+
+    auto tensorType = dyn_cast<mlir::RankedTensorType>(argValues[0].getType());
+    int dim = tensorType.getShape().size();
+    auto elementType = tensorType.getElementType();
+
+    SmallVector<int64_t> resultShape(dim, ShapedType::kDynamic);
+    SmallVector<int64_t> strideValueStatic(dim, 1);
+    SmallVector<int64_t> sizeValueStatic(dim, ShapedType::kDynamic),
+                         offsetValueStatic(dim, ShapedType::kDynamic);
+    auto resultType = mlir::RankedTensorType::get(resultShape, elementType, builder.getI64IntegerAttr(0));
+    SmallVector<mlir::Value> sizeValueDynamic, offsetValueDynamic;
+    for (int i = 0; i < dim; i++) {
+      auto indexValue = getConstantIndexValue(builder, loc, i);
+      sizeValueDynamic.push_back(
+        builder.create<arith::IndexCastOp>(loc, builder.getIndexType(),
+          builder.create<tensor::ExtractOp>(loc, argValues[1], ValueRange{indexValue})));
+      offsetValueDynamic.push_back(
+        builder.create<arith::IndexCastOp>(loc, builder.getIndexType(),
+          builder.create<tensor::ExtractOp>(loc, argValues[2], ValueRange{indexValue})));
+    }
+
+    auto loadTensor = builder.create<tensor::ExtractSliceOp>(loc, resultType,
+                          argValues[0], offsetValueDynamic, sizeValueDynamic, ValueRange{},
+                                        offsetValueStatic, sizeValueStatic, strideValueStatic);
+    return make_pair(ValueCategory(loadTensor, true), true);
+  }
+
+  if (fd->getName() == "mac_store") {
+    llvm::SmallVector<mlir::Value, 4> argValues;
+    for (clang::Expr *argExpr : llvm::ArrayRef<clang::Expr *>(expr->getArgs(), expr->getNumArgs())) {
+      argValues.push_back(
+        Visit(argExpr).getValue(loc, builder));
+    }
+
+    auto sizeValueStatic = dyn_cast<RankedTensorType>(argValues[1].getType()).getShape();
+    auto tensorType = dyn_cast<mlir::RankedTensorType>(argValues[0].getType());
+    int dim = tensorType.getShape().size();
+    auto elementType = tensorType.getElementType();
+
+    SmallVector<int64_t> resultShape(dim, ShapedType::kDynamic);
+    SmallVector<int64_t> strideValueStatic(dim, 1), offsetValueStatic(dim, ShapedType::kDynamic);
+    auto resultType = mlir::RankedTensorType::get(resultShape, elementType, builder.getI64IntegerAttr(0));
+    SmallVector<mlir::Value> offsetValueDynamic, sizeValueDynamic;
+    for (int i = 0; i < dim; i++) {
+      auto indexValue = getConstantIndexValue(builder, loc, i);
+      offsetValueDynamic.push_back(
+        builder.create<arith::IndexCastOp>(loc, builder.getIndexType(),
+          builder.create<tensor::ExtractOp>(loc, argValues[2], ValueRange{indexValue}))
+      );
+      if (sizeValueStatic[i] == ShapedType::kDynamic)
+        sizeValueDynamic.push_back(builder.create<tensor::DimOp>(loc, argValues[1], i));
+    }
+
+    auto storeTensor = builder.create<tensor::InsertSliceOp>(loc, argValues[0].getType(), argValues[1], argValues[0],
+                                      offsetValueDynamic, sizeValueDynamic, ValueRange{},
+                                      offsetValueStatic, sizeValueStatic, strideValueStatic);
+    auto storeValue = ValueCategory(storeTensor, true);
+    if (auto dstVarRef = dyn_cast<clang::DeclRefExpr>(expr->getArgs()[0])) {
+        updateRedefinedLocalParams(dstVarRef->getDecl(), storeValue);
+    }
+    return make_pair(storeValue, true);
   }
 
   if (fd->getName() == "mac_add") {
@@ -117,6 +192,35 @@ MLIRScanner::EmitTensorCallOps(clang::CallExpr *expr) {
                                     linalg::TypeFnAttr::get(builder.getContext(), linalg::TypeFn::cast_signed));
 
     return make_pair(ValueCategory(matmul_result.getResults()[0], true), true);
+  }
+
+
+  if (fd->getName() == "mac_fill") {
+    llvm::SmallVector<mlir::Value, 4> argValues;
+    for (clang::Expr *argExpr : llvm::ArrayRef<clang::Expr *>(expr->getArgs(), expr->getNumArgs())) {
+      argValues.push_back(
+        Visit(argExpr).getValue(loc, builder));
+    }
+
+    auto elementType = argValues[0].getType();
+    int dim = dyn_cast<mlir::RankedTensorType>(argValues[1].getType()).getShape()[0];
+    SmallVector<int64_t> resultShape(dim, ShapedType::kDynamic);
+    auto resultType = RankedTensorType::get(resultShape, elementType, builder.getI64IntegerAttr(0));
+    
+    SmallVector<mlir::Value> dynamicShapes;
+    for (int i = 0; i < dim; i++) {
+      auto indexValue = getConstantIndexValue(builder, loc, i);
+      dynamicShapes.push_back(
+        builder.create<arith::IndexCastOp>(loc, builder.getIndexType(),
+          builder.create<tensor::ExtractOp>(loc, argValues[1], ValueRange{indexValue}))
+      );
+    }
+
+    auto allocTensor = builder.create<tensor::EmptyOp>(loc, resultType, dynamicShapes);
+    auto fillOp = builder.create<mlir::linalg::FillOp>(loc, 
+                    TypeRange{resultType}, ValueRange{argValues[0]}, ValueRange{allocTensor});
+
+    return make_pair(ValueCategory(fillOp.getResults()[0], true), true);
   }
 
   return make_pair(ValueCategory(), false);
