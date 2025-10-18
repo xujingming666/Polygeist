@@ -209,11 +209,13 @@ MLIRScanner::EmitTensorCallOps(clang::CallExpr *expr) {
     
     SmallVector<mlir::Value> dynamicShapes;
     for (int i = 0; i < dim; i++) {
-      auto indexValue = getConstantIndexValue(builder, loc, i);
-      dynamicShapes.push_back(
-        builder.create<arith::IndexCastOp>(loc, builder.getIndexType(),
-          builder.create<tensor::ExtractOp>(loc, argValues[1], ValueRange{indexValue}))
-      );
+      if (resultShape[i] == ShapedType::kDynamic) {
+        auto indexValue = getConstantIndexValue(builder, loc, i);
+        dynamicShapes.push_back(
+          builder.create<arith::IndexCastOp>(loc, builder.getIndexType(),
+            builder.create<tensor::ExtractOp>(loc, argValues[1], ValueRange{indexValue}))
+        );
+      }
     }
 
     auto allocTensor = builder.create<tensor::EmptyOp>(loc, resultType, dynamicShapes);
