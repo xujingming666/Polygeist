@@ -5760,7 +5760,7 @@ mlir::Type MLIRASTConsumer::getMLIRType(clang::QualType qt, bool *implicitRef,
     }
     assert(!RT->getDecl()->isInvalidDecl());
     if (isTensorType(*RT)) {
-      assert(false, "it can not be used for rank > 1");
+      assert(false && "it can not be used for rank > 1");
       if (implicitRef)
         *implicitRef = true;
       auto TS = dyn_cast<clang::ClassTemplateSpecializationDecl>(RT->getDecl());
