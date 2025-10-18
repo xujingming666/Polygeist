@@ -1672,7 +1672,7 @@ ValueCategory MLIRScanner::VisitConstructCommon(clang::CXXConstructExpr *cons,
     llvm::SmallVector<mlir::Value, 4> args;
     for (auto a : cons->arguments())
       args.push_back(Visit(a).getValue(loc, builder));
-    auto vectorType = RankedTensorType::get({args.size()}, args[0].getType(), builder.getI64IntegerAttr(0));
+    auto vectorType = RankedTensorType::get({args.size()}, args[0].getType());
     mlir::Value vectorValue = builder.create<tensor::FromElementsOp>(loc, vectorType, args);
     return ValueCategory(vectorValue, /*isReference*/ true);
   }
@@ -5760,15 +5760,14 @@ mlir::Type MLIRASTConsumer::getMLIRType(clang::QualType qt, bool *implicitRef,
     }
     assert(!RT->getDecl()->isInvalidDecl());
     if (isTensorType(*RT)) {
-      assert(false && "it can not be used for rank > 1");
+      // assert(false && "it can not be used for rank > 1");
       if (implicitRef)
         *implicitRef = true;
       auto TS = dyn_cast<clang::ClassTemplateSpecializationDecl>(RT->getDecl());
       auto tsArgs = TS->getTemplateArgs().asArray();
       auto elementTypeMlir = getMLIRType(tsArgs[0].getAsType());
       OpBuilder builder(module->getContext());
-      return RankedTensorType::get({ShapedType::kDynamic},
-                elementTypeMlir, builder.getI64IntegerAttr(getTensorMemorySpace(*RT)));
+      return RankedTensorType::get({ShapedType::kDynamic}, elementTypeMlir);
     }
 
     if (isVectorType(*RT)) {
@@ -5778,8 +5777,7 @@ mlir::Type MLIRASTConsumer::getMLIRType(clang::QualType qt, bool *implicitRef,
       auto tsArgs = TS->getTemplateArgs().asArray();
       auto elementTypeMlir = getMLIRType(tsArgs[0].getAsType());
       OpBuilder builder(module->getContext());
-      return RankedTensorType::get({tsArgs.size()},
-                elementTypeMlir, builder.getI64IntegerAttr(0));
+      return RankedTensorType::get({tsArgs.size()}, elementTypeMlir);
     }
 
     if (typeCache.find(RT) != typeCache.end())

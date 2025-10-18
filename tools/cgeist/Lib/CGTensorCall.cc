@@ -113,7 +113,7 @@ MLIRScanner::EmitTensorCallOps(clang::CallExpr *expr) {
     SmallVector<int64_t> strideValueStatic(dim, 1);
     SmallVector<int64_t> sizeValueStatic(dim, ShapedType::kDynamic),
                          offsetValueStatic(dim, ShapedType::kDynamic);
-    auto resultType = mlir::RankedTensorType::get(resultShape, elementType, builder.getI64IntegerAttr(0));
+    auto resultType = mlir::RankedTensorType::get(resultShape, elementType);
     SmallVector<mlir::Value> sizeValueDynamic, offsetValueDynamic;
     for (int i = 0; i < dim; i++) {
       auto indexValue = getConstantIndexValue(builder, loc, i);
@@ -145,7 +145,7 @@ MLIRScanner::EmitTensorCallOps(clang::CallExpr *expr) {
 
     SmallVector<int64_t> resultShape(dim, ShapedType::kDynamic);
     SmallVector<int64_t> strideValueStatic(dim, 1), offsetValueStatic(dim, ShapedType::kDynamic);
-    auto resultType = mlir::RankedTensorType::get(resultShape, elementType, builder.getI64IntegerAttr(0));
+    auto resultType = mlir::RankedTensorType::get(resultShape, elementType);
     SmallVector<mlir::Value> offsetValueDynamic, sizeValueDynamic;
     for (int i = 0; i < dim; i++) {
       auto indexValue = getConstantIndexValue(builder, loc, i);
@@ -184,7 +184,7 @@ MLIRScanner::EmitTensorCallOps(clang::CallExpr *expr) {
         dynamicShapes.push_back(mValue);
       }
     }
-    auto tensorType = RankedTensorType::get(lhsShape, elementType, builder.getI64IntegerAttr(0));
+    auto tensorType = RankedTensorType::get(lhsShape, elementType);
     auto allocTensor = builder.create<tensor::EmptyOp>(loc, tensorType, dynamicShapes);
     auto matmul_result = builder.create<linalg::ElemwiseBinaryOp>(loc, TypeRange{lhsType},
                                     ValueRange{argValues[0], argValues[1]}, ValueRange{allocTensor},
@@ -205,7 +205,7 @@ MLIRScanner::EmitTensorCallOps(clang::CallExpr *expr) {
     auto elementType = argValues[0].getType();
     int dim = dyn_cast<mlir::RankedTensorType>(argValues[1].getType()).getShape()[0];
     SmallVector<int64_t> resultShape(dim, ShapedType::kDynamic);
-    auto resultType = RankedTensorType::get(resultShape, elementType, builder.getI64IntegerAttr(0));
+    auto resultType = RankedTensorType::get(resultShape, elementType);
     
     SmallVector<mlir::Value> dynamicShapes;
     for (int i = 0; i < dim; i++) {

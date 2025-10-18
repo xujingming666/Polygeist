@@ -52,7 +52,7 @@ ValueCategory MLIRScanner::VisitTensorCXXOperatorCallExpr(clang::CXXOperatorCall
           dynamicShapes.push_back(mValue);
         }
       }
-      auto tensorType = RankedTensorType::get(lhsShape, elementType, builder.getI64IntegerAttr(0));
+      auto tensorType = RankedTensorType::get(lhsShape, elementType);
       auto allocTensor = builder.create<tensor::EmptyOp>(loc, tensorType, dynamicShapes);
       auto matmul_result = builder.create<linalg::ElemwiseBinaryOp>(loc, TypeRange{lhsType},
                                       ValueRange{lhsValue, rhsValue}, ValueRange{allocTensor},
