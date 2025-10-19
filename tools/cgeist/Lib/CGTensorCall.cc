@@ -87,12 +87,9 @@ MLIRScanner::EmitTensorCallOps(clang::CallExpr *expr) {
         Visit(argExpr).getValue(loc, builder));
     }
 
-    auto memrefType = dyn_cast<mlir::MemRefType>(argValues[0].getType());
-    if (memrefType) {
-      int64_t dim = memrefType.getShape().size();
-      auto tensorType = UnrankedTensorType::get(memrefType.getElementType());
-      argValues[0] = builder.create<mlir::bufferization::ToTensorOp>(loc, tensorType, argValues[0], true, true);
-    }
+    auto memrefType = dyn_cast<mlir::UnrankedMemRefType>(argValues[0].getType());
+    auto unrankedTensorType = UnrankedTensorType::get(memrefType.getElementType());
+    argValues[0] = builder.create<mlir::bufferization::ToTensorOp>(loc, unrankedTensorType, argValues[0], true, true);
 
     int dim = dyn_cast<mlir::RankedTensorType>(argValues[1].getType()).getShape()[0];
     llvm::SmallVector<int64_t> shape = getStaticShape(argValues[1], dim);

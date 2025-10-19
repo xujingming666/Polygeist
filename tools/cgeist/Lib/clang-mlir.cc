@@ -5357,8 +5357,12 @@ MLIRASTConsumer::GetOrCreateMLIRFunction(const FunctionDecl *FD,
   for (unsigned i = 0; i < outputFlags.size(); ++i) {
     // set the output attribute if it has
     if (outputFlags[i]) {
-      auto elementType = dyn_cast<mlir::MemRefType>(types[i]).getElementType();
-      rettypes.push_back(UnrankedMemRefType::get(elementType, 1));
+      if (isa<mlir::UnrankedMemRefType>(types[i]))
+        rettypes.push_back(types[i]);
+      else {
+        auto elementType = dyn_cast<mlir::MemRefType>(types[i]).getElementType();
+        rettypes.push_back(UnrankedMemRefType::get(elementType, 1));
+      }
     }
   }
 
@@ -6043,8 +6047,7 @@ mlir::Type MLIRASTConsumer::getMLIRType(clang::QualType qt, bool *implicitRef,
     assert(!subRef);
     if (memorySpace) {
       mlir::OpBuilder builder(module->getContext());
-      return mlir::MemRefType::get({outer}, subType, 
-              MemRefLayoutAttrInterface(), builder.getI64IntegerAttr(memorySpace));
+      return mlir::UnrankedMemRefType::get(subType, builder.getI64IntegerAttr(memorySpace));
     } else
       return mlir::MemRefType::get({outer}, subType);
   }
