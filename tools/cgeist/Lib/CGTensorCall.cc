@@ -72,6 +72,60 @@ const clang::FunctionDecl *getCallee(const clang::Expr *E) {
 }
 
 std::pair<ValueCategory, bool>
+MLIRScanner::EmitTensorBinaryOps(clang::CallExpr *expr, OpBuilder &builder, Location loc, linalg::BinaryFn fn) {
+  llvm::SmallVector<mlir::Value, 4> argValues;
+  for (clang::Expr *argExpr : llvm::ArrayRef<clang::Expr *>(expr->getArgs(), expr->getNumArgs())) {
+    argValues.push_back(
+      Visit(argExpr).getValue(loc, builder));
+  }
+  auto lhsType = dyn_cast<mlir::RankedTensorType>(argValues[0].getType());
+  auto lhsShape = lhsType.getShape();
+  auto elementType = lhsType.getElementType();
+
+  llvm::SmallVector<mlir::Value> dynamicShapes;
+  for (auto it : llvm::enumerate(lhsShape)) {
+    if (it.value() == ShapedType::kDynamic) {
+      auto mValue = builder.create<tensor::DimOp>(loc, argValues[0], it.index());
+      dynamicShapes.push_back(mValue);
+    }
+  }
+  auto tensorType = RankedTensorType::get(lhsShape, elementType);
+  auto allocTensor = builder.create<tensor::EmptyOp>(loc, tensorType, dynamicShapes);
+  auto matmul_result = builder.create<linalg::ElemwiseBinaryOp>(loc, TypeRange{lhsType},
+                                  ValueRange{argValues[0], argValues[1]}, ValueRange{allocTensor},
+                                  linalg::BinaryFnAttr::get(builder.getContext(), fn),
+                                  linalg::TypeFnAttr::get(builder.getContext(), linalg::TypeFn::cast_signed));
+  return make_pair(ValueCategory(matmul_result.getResults()[0], true), true);
+}
+
+std::pair<ValueCategory, bool>
+MLIRScanner::EmitTensorUnaryOps(clang::CallExpr *expr, OpBuilder &builder, Location loc, linalg::UnaryFn fn) {
+  llvm::SmallVector<mlir::Value, 4> argValues;
+  for (clang::Expr *argExpr : llvm::ArrayRef<clang::Expr *>(expr->getArgs(), expr->getNumArgs())) {
+    argValues.push_back(
+      Visit(argExpr).getValue(loc, builder));
+  }
+  auto lhsType = dyn_cast<mlir::RankedTensorType>(argValues[0].getType());
+  auto lhsShape = lhsType.getShape();
+  auto elementType = lhsType.getElementType();
+
+  llvm::SmallVector<mlir::Value> dynamicShapes;
+  for (auto it : llvm::enumerate(lhsShape)) {
+    if (it.value() == ShapedType::kDynamic) {
+      auto mValue = builder.create<tensor::DimOp>(loc, argValues[0], it.index());
+      dynamicShapes.push_back(mValue);
+    }
+  }
+  auto tensorType = RankedTensorType::get(lhsShape, elementType);
+  auto allocTensor = builder.create<tensor::EmptyOp>(loc, tensorType, dynamicShapes);
+  auto matmul_result = builder.create<linalg::ElemwiseUnaryOp>(loc, TypeRange{lhsType},
+                                  ValueRange{argValues[0]}, ValueRange{allocTensor},
+                                  linalg::UnaryFnAttr::get(builder.getContext(), fn),
+                                  linalg::TypeFnAttr::get(builder.getContext(), linalg::TypeFn::cast_signed));
+  return make_pair(ValueCategory(matmul_result.getResults()[0], true), true);
+}
+
+std::pair<ValueCategory, bool>
 MLIRScanner::EmitTensorCallOps(clang::CallExpr *expr) {
   auto loc = getMLIRLocation(expr->getExprLoc());
   auto fd = getCallee(expr->getCallee());
@@ -176,33 +230,78 @@ MLIRScanner::EmitTensorCallOps(clang::CallExpr *expr) {
     return make_pair(storeValue, true);
   }
 
+  //emit binary ops
   if (fd->getName() == "mac_add") {
-    llvm::SmallVector<mlir::Value, 4> argValues;
-    for (clang::Expr *argExpr : llvm::ArrayRef<clang::Expr *>(expr->getArgs(), expr->getNumArgs())) {
-      argValues.push_back(
-        Visit(argExpr).getValue(loc, builder));
-    }
-    auto lhsType = dyn_cast<mlir::RankedTensorType>(argValues[0].getType());
-    auto lhsShape = lhsType.getShape();
-    auto elementType = lhsType.getElementType();
-
-    llvm::SmallVector<mlir::Value> dynamicShapes;
-    for (auto it : llvm::enumerate(lhsShape)) {
-      if (it.value() == ShapedType::kDynamic) {
-        auto mValue = builder.create<tensor::DimOp>(loc, argValues[0], it.index());
-        dynamicShapes.push_back(mValue);
-      }
-    }
-    auto tensorType = RankedTensorType::get(lhsShape, elementType);
-    auto allocTensor = builder.create<tensor::EmptyOp>(loc, tensorType, dynamicShapes);
-    auto matmul_result = builder.create<linalg::ElemwiseBinaryOp>(loc, TypeRange{lhsType},
-                                    ValueRange{argValues[0], argValues[1]}, ValueRange{allocTensor},
-                                    linalg::BinaryFnAttr::get(builder.getContext(), linalg::BinaryFn::add),
-                                    linalg::TypeFnAttr::get(builder.getContext(), linalg::TypeFn::cast_signed));
-
-    return make_pair(ValueCategory(matmul_result.getResults()[0], true), true);
+    return EmitTensorBinaryOps(expr, builder, loc, linalg::BinaryFn::add);
+  }
+  if (fd->getName() == "mac_sub") {
+    return EmitTensorBinaryOps(expr, builder, loc, linalg::BinaryFn::sub);
+  }
+  if (fd->getName() == "mac_mul") {
+    return EmitTensorBinaryOps(expr, builder, loc, linalg::BinaryFn::mul);
+  }
+  if (fd->getName() == "mac_div") {
+    return EmitTensorBinaryOps(expr, builder, loc, linalg::BinaryFn::div);
+  }
+  if (fd->getName() == "mac_div_unsigned") {
+    return EmitTensorBinaryOps(expr, builder, loc, linalg::BinaryFn::div_unsigned);
+  }
+  if (fd->getName() == "mac_min_signed") {
+    return EmitTensorBinaryOps(expr, builder, loc, linalg::BinaryFn::min_signed);
+  }
+  if (fd->getName() == "mac_max_signed") {
+    return EmitTensorBinaryOps(expr, builder, loc, linalg::BinaryFn::max_signed);
+  }
+  if (fd->getName() == "mac_min_unsigned") {
+    return EmitTensorBinaryOps(expr, builder, loc, linalg::BinaryFn::min_unsigned);
+  }
+  if (fd->getName() == "mac_max_unsigned") {
+    return EmitTensorBinaryOps(expr, builder, loc, linalg::BinaryFn::max_unsigned);
+  }
+  if (fd->getName() == "mac_powf") {
+    return EmitTensorBinaryOps(expr, builder, loc, linalg::BinaryFn::powf);
   }
 
+  // emit unary ops
+  if (fd->getName() == "mac_exp") {
+    return EmitTensorUnaryOps(expr, builder, loc, linalg::UnaryFn::exp);
+  }
+  if (fd->getName() == "mac_log") {
+    return EmitTensorUnaryOps(expr, builder, loc, linalg::UnaryFn::log);
+  }
+  if (fd->getName() == "mac_abs") {
+    return EmitTensorUnaryOps(expr, builder, loc, linalg::UnaryFn::abs);
+  }
+  if (fd->getName() == "mac_ceil") {
+    return EmitTensorUnaryOps(expr, builder, loc, linalg::UnaryFn::ceil);
+  }
+  if (fd->getName() == "mac_floor") {
+    return EmitTensorUnaryOps(expr, builder, loc, linalg::UnaryFn::floor);
+  }
+  if (fd->getName() == "mac_negf") {
+    return EmitTensorUnaryOps(expr, builder, loc, linalg::UnaryFn::negf);
+  }
+  if (fd->getName() == "mac_reciprocal") {
+    return EmitTensorUnaryOps(expr, builder, loc, linalg::UnaryFn::reciprocal);
+  }
+  if (fd->getName() == "mac_round") {
+    return EmitTensorUnaryOps(expr, builder, loc, linalg::UnaryFn::round);
+  }
+  if (fd->getName() == "mac_sqrt") {
+    return EmitTensorUnaryOps(expr, builder, loc, linalg::UnaryFn::sqrt);
+  }
+  if (fd->getName() == "mac_rsqrt") {
+    return EmitTensorUnaryOps(expr, builder, loc, linalg::UnaryFn::rsqrt);
+  }
+  if (fd->getName() == "mac_square") {
+    return EmitTensorUnaryOps(expr, builder, loc, linalg::UnaryFn::square);
+  }
+  if (fd->getName() == "mac_tanh") {
+    return EmitTensorUnaryOps(expr, builder, loc, linalg::UnaryFn::tanh);
+  }
+  if (fd->getName() == "mac_erf") {
+    return EmitTensorUnaryOps(expr, builder, loc, linalg::UnaryFn::erf);
+  }
 
   if (fd->getName() == "mac_fill") {
     llvm::SmallVector<mlir::Value, 4> argValues;

@@ -19,6 +19,7 @@
 #include "mlir/Dialect/LLVMIR/NVVMDialect.h"
 #include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/OpDefinition.h"
@@ -411,7 +412,10 @@ public:
   std::pair<ValueCategory, bool> EmitBuiltinOps(clang::CallExpr *expr);
 
   std::pair<ValueCategory, bool> EmitTensorCallOps(clang::CallExpr *expr);
-
+  std::pair<ValueCategory, bool> EmitTensorBinaryOps(clang::CallExpr *expr, 
+    OpBuilder &builder, Location loc, linalg::BinaryFn fn);
+  std::pair<ValueCategory, bool> EmitTensorUnaryOps(clang::CallExpr *expr,
+    OpBuilder &builder, Location loc, linalg::UnaryFn fn);
   ValueCategory
   VisitCXXScalarValueInitExpr(clang::CXXScalarValueInitExpr *expr);
 

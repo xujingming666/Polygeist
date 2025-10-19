@@ -39,3 +39,27 @@ template<typename T> void mac_store(SL_TENSOR<T> &dst, SL_TENSOR_UM<T> &src, SL_
 template<typename T> SL_TENSOR_UM<T> &mac_fill(T lhs, SL_VECTOR<int>  offset);
 
 template<typename T> SL_TENSOR_UM<T> &mac_add(SL_TENSOR_UM<T> &lhs, SL_TENSOR_UM<T> &rhs);
+template<typename T> SL_TENSOR_UM<T> &mac_sub(SL_TENSOR_UM<T> &lhs, SL_TENSOR_UM<T> &rhs);
+template<typename T> SL_TENSOR_UM<T> &mac_mul(SL_TENSOR_UM<T> &lhs, SL_TENSOR_UM<T> &rhs);
+template<typename T> SL_TENSOR_UM<T> &mac_div(SL_TENSOR_UM<T> &lhs, SL_TENSOR_UM<T> &rhs);
+template<typename T> SL_TENSOR_UM<T> &mac_div_unsigned(SL_TENSOR_UM<T> &lhs, SL_TENSOR_UM<T> &rhs);
+template<typename T> SL_TENSOR_UM<T> &mac_min_signed(SL_TENSOR_UM<T> &lhs, SL_TENSOR_UM<T> &rhs);
+template<typename T> SL_TENSOR_UM<T> &mac_max_signed(SL_TENSOR_UM<T> &lhs, SL_TENSOR_UM<T> &rhs);
+template<typename T> SL_TENSOR_UM<T> &mac_min_unsigned(SL_TENSOR_UM<T> &lhs, SL_TENSOR_UM<T> &rhs);
+template<typename T> SL_TENSOR_UM<T> &mac_max_unsigned(SL_TENSOR_UM<T> &lhs, SL_TENSOR_UM<T> &rhs);
+template<typename T> SL_TENSOR_UM<T> &mac_powf(SL_TENSOR_UM<T> &lhs, SL_TENSOR_UM<T> &rhs);
+
+template<typename T> SL_TENSOR_UM<T> &mac_cos(SL_TENSOR_UM<T> &lhs);
+template<typename T> SL_TENSOR_UM<T> &mac_exp(SL_TENSOR_UM<T> &lhs);
+template<typename T> SL_TENSOR_UM<T> &mac_log(SL_TENSOR_UM<T> &lhs);
+template<typename T> SL_TENSOR_UM<T> &mac_abs(SL_TENSOR_UM<T> &lhs);
+template<typename T> SL_TENSOR_UM<T> &mac_ceil(SL_TENSOR_UM<T> &lhs);
+template<typename T> SL_TENSOR_UM<T> &mac_floor(SL_TENSOR_UM<T> &lhs);
+template<typename T> SL_TENSOR_UM<T> &mac_negf(SL_TENSOR_UM<T> &lhs);
+template<typename T> SL_TENSOR_UM<T> &mac_reciprocal(SL_TENSOR_UM<T> &lhs);
+template<typename T> SL_TENSOR_UM<T> &mac_round(SL_TENSOR_UM<T> &lhs);
+template<typename T> SL_TENSOR_UM<T> &mac_sqrt(SL_TENSOR_UM<T> &lhs);
+template<typename T> SL_TENSOR_UM<T> &mac_rsqrt(SL_TENSOR_UM<T> &lhs);
+template<typename T> SL_TENSOR_UM<T> &mac_square(SL_TENSOR_UM<T> &lhs);
+template<typename T> SL_TENSOR_UM<T> &mac_tanh(SL_TENSOR_UM<T> &lhs);
+template<typename T> SL_TENSOR_UM<T> &mac_erf(SL_TENSOR_UM<T> &lhs);
