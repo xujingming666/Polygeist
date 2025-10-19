@@ -29,6 +29,19 @@ mlir::Value getConstantIndexValue(OpBuilder &builder, Location loc, int64_t valu
   return builder.create<arith::IndexCastOp>(loc, builder.getIndexType(), indexValue);
 }
 
+llvm::SmallVector<int64_t> getStaticShape(mlir::Value value, int dim) {
+  llvm::SmallVector<int64_t> shapes(dim, ShapedType::kDynamic);
+  if (auto fromElem = value.getDefiningOp<tensor::FromElementsOp>()) {
+    for (auto it : llvm::enumerate(fromElem.getOperands())) {
+      if (auto shapeElem = it.value().getDefiningOp<arith::ConstantOp>()) {
+        auto intAttr = shapeElem.getValue().dyn_cast<IntegerAttr>();
+        shapes[it.index()] = intAttr.getValue().getSExtValue();
+      }
+    }
+  }
+  return shapes;
+}
+
 const clang::FunctionDecl *getCallee(const clang::Expr *E) {
   E = E->IgnoreParens();
   // Look through function-to-pointer decay.
@@ -77,14 +90,13 @@ MLIRScanner::EmitTensorCallOps(clang::CallExpr *expr) {
     auto memrefType = dyn_cast<mlir::MemRefType>(argValues[0].getType());
     if (memrefType) {
       int64_t dim = memrefType.getShape().size();
-      std::vector<int64_t> shape(dim, ShapedType::kDynamic);
       auto tensorType = UnrankedTensorType::get(memrefType.getElementType());
       argValues[0] = builder.create<mlir::bufferization::ToTensorOp>(loc, tensorType, argValues[0], true, true);
     }
 
     int dim = dyn_cast<mlir::RankedTensorType>(argValues[1].getType()).getShape()[0];
-    std::vector<int64_t> shape(dim, ShapedType::kDynamic);
-    auto tensorType = RankedTensorType::get(shape, memrefType.getElementType(), 
+    llvm::SmallVector<int64_t> shape = getStaticShape(argValues[1], dim);
+    auto tensorType = RankedTensorType::get(shape, memrefType.getElementType(),
                         builder.getI64IntegerAttr(memrefType.getMemorySpaceAsInt()));
     mlir::Value reshapeTensor = builder.create<mlir::tensor::ReshapeOp>(loc, tensorType, argValues[0], argValues[1]);
     
@@ -109,7 +121,7 @@ MLIRScanner::EmitTensorCallOps(clang::CallExpr *expr) {
     int dim = tensorType.getShape().size();
     auto elementType = tensorType.getElementType();
 
-    SmallVector<int64_t> resultShape(dim, ShapedType::kDynamic);
+    SmallVector<int64_t> resultShape = getStaticShape(argValues[1], dim);
     SmallVector<int64_t> strideValueStatic(dim, 1);
     SmallVector<int64_t> sizeValueStatic(dim, ShapedType::kDynamic),
                          offsetValueStatic(dim, ShapedType::kDynamic);
@@ -204,7 +216,7 @@ MLIRScanner::EmitTensorCallOps(clang::CallExpr *expr) {
 
     auto elementType = argValues[0].getType();
     int dim = dyn_cast<mlir::RankedTensorType>(argValues[1].getType()).getShape()[0];
-    SmallVector<int64_t> resultShape(dim, ShapedType::kDynamic);
+    SmallVector<int64_t> resultShape = getStaticShape(argValues[1], dim);
     auto resultType = RankedTensorType::get(resultShape, elementType);
     
     SmallVector<mlir::Value> dynamicShapes;
