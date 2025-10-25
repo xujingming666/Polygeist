@@ -102,6 +102,16 @@ def AffineReduction : Pass<"detect-reduction"> {
   let constructor = "mlir::polygeist::detectReductionPass()";
 }
 
+def GroupAnnotation: Pass<"group-annotation", "mlir::ModuleOp"> {
+  let summary = "linalg group annotation";
+  let constructor = "mlir::polygeist::groupAnnotationPass()";
+}
+
+def Outline: Pass<"outline", "mlir::ModuleOp"> {
+  let summary = "linalg outline";
+  let constructor = "mlir::polygeist::outlinePass()";
+}
+
 def SCFCPUify : Pass<"cpuify"> {
   let summary = "remove scf.barrier";
   let constructor = "mlir::polygeist::createCPUifyPass()";

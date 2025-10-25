@@ -39,6 +39,8 @@ std::unique_ptr<Pass> createRaiseSCFToAffinePass();
 std::unique_ptr<Pass> createCPUifyPass(StringRef method = "");
 std::unique_ptr<Pass> createBarrierRemovalContinuation();
 std::unique_ptr<Pass> detectReductionPass();
+std::unique_ptr<Pass> groupAnnotationPass();
+std::unique_ptr<Pass> outlinePass();
 std::unique_ptr<Pass> createRemoveTrivialUsePass();
 std::unique_ptr<Pass> createPolyhedralOptPass();
 std::unique_ptr<Pass> createParallelLowerPass(
