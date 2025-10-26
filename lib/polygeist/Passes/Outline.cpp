@@ -33,21 +33,24 @@ private:
     std::map<int64_t, SmallVector<Operation*>> groupOps;
     parentFunc.walk([&](linalg::LinalgOp linalgOp) {
       int64_t groupId = dyn_cast<IntegerAttr>(linalgOp->getAttr("group_id")).getInt();
-      if (groupOps.count(groupId) > 0) {
-        for (auto operand : linalgOp->getOperands()) {
-          if (auto defineOp = operand.getDefiningOp<mlir::tensor::EmptyOp>()) {
-            if (defineOp->getParentOp() == linalgOp->getParentOp())
-              groupOps[groupId].push_back(defineOp);
-          }
-          if (auto defineOp = operand.getDefiningOp<mlir::arith::ConstantOp>()) {
-            if (defineOp->getParentOp() == linalgOp->getParentOp())
-              groupOps[groupId].push_back(defineOp);
-          }
+
+      if (groupOps.count(groupId) == 0)
+        groupOps[groupId] = {};
+      
+      for (auto operand : linalgOp->getOperands()) {
+        if (auto defineOp = operand.getDefiningOp<mlir::tensor::EmptyOp>()) {
+          if (defineOp->getParentOp() == linalgOp->getParentOp() && 
+              std::find(groupOps[groupId].begin(), groupOps[groupId].end(), defineOp) == groupOps[groupId].end())
+            groupOps[groupId].push_back(defineOp);
         }
-        groupOps[groupId].push_back(linalgOp);
-      } else {
-        groupOps[groupId] = {linalgOp};
+        if (auto defineOp = operand.getDefiningOp<mlir::arith::ConstantOp>()) {
+          if (defineOp->getParentOp() == linalgOp->getParentOp() &&
+              std::find(groupOps[groupId].begin(), groupOps[groupId].end(), defineOp) == groupOps[groupId].end())
+            groupOps[groupId].push_back(defineOp);
+        }
       }
+
+      groupOps[groupId].push_back(linalgOp);
       linalgOp->removeAttr("group_id");
     });
     
@@ -119,7 +122,9 @@ private:
           }
         }
         if (isOutput) {
-          outputSet.insert(result);
+          if (result.getDefiningOp<mlir::tensor::EmptyOp>() == nullptr &&
+              result.getDefiningOp<mlir::arith::ConstantOp>() == nullptr)
+            outputSet.insert(result);
         }
       }
     }
@@ -145,7 +150,9 @@ private:
     }
     
     for (Operation *op : llvm::reverse(ops)) {
-      op->erase();
+      if (!isa<mlir::tensor::EmptyOp>(op) &&
+          !isa<mlir::arith::ConstantOp>(op))
+        op->erase();
     }
   }
 };
