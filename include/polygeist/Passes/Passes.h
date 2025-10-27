@@ -41,6 +41,7 @@ std::unique_ptr<Pass> createBarrierRemovalContinuation();
 std::unique_ptr<Pass> detectReductionPass();
 std::unique_ptr<Pass> groupAnnotationPass();
 std::unique_ptr<Pass> outlinePass();
+std::unique_ptr<Pass> tilingPass();
 std::unique_ptr<Pass> createRemoveTrivialUsePass();
 std::unique_ptr<Pass> createPolyhedralOptPass();
 std::unique_ptr<Pass> createParallelLowerPass(

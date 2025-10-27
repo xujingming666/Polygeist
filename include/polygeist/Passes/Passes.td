@@ -112,6 +112,11 @@ def Outline: Pass<"outline", "mlir::ModuleOp"> {
   let constructor = "mlir::polygeist::outlinePass()";
 }
 
+def Tiling : Pass<"tiling"> {
+  let summary = " tiling pass ";
+  let constructor = "mlir::polygeist::tilingPass()";
+}
+
 def SCFCPUify : Pass<"cpuify"> {
   let summary = "remove scf.barrier";
   let constructor = "mlir::polygeist::createCPUifyPass()";

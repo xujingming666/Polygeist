@@ -44,6 +44,8 @@
 #include "mlir/Dialect/OpenMP/OpenMPDialect.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/SCF/Transforms/Passes.h"
+#include "mlir/Dialect/Transform/IR/TransformOps.h"
+#include "mlir/Dialect/Transform/IR/TransformDialect.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/OpImplementation.h"
@@ -80,6 +82,7 @@
 #endif
 
 #include "polygeist/Dialect.h"
+#include "polygeist/Interface.h"
 #include "polygeist/Passes/Passes.h"
 
 #include <fstream>
@@ -546,6 +549,8 @@ int main(int argc, char **argv) {
   mlir::registerAllExtensions(registry);
   mlir::registerAllFromLLVMIRTranslations(registry);
   mlir::registerBuiltinDialectTranslation(registry);
+  mlir::polygeist::registerTilingInterfaceExternalModels(registry);
+
   MLIRContext context(registry);
 
   context.disableMultithreading();
@@ -565,6 +570,7 @@ int main(int argc, char **argv) {
   context.getOrLoadDialect<mlir::polygeist::PolygeistDialect>();
   context.getOrLoadDialect<mlir::cf::ControlFlowDialect>();
   context.getOrLoadDialect<mlir::bufferization::BufferizationDialect>();
+  context.getOrLoadDialect<mlir::transform::TransformDialect>();
 
   LLVM::LLVMFunctionType::attachInterface<MemRefInsider>(context);
   LLVM::LLVMPointerType::attachInterface<MemRefInsider>(context);
@@ -590,6 +596,12 @@ int main(int argc, char **argv) {
                  triple, DL, gpuTriple, gpuDL)) {
     llvm::errs() << " parse MLIR error \n";
     return 1;
+  }
+
+  if (mlir::failed(mlir::verify(*module))) {
+    module->dump();
+    llvm::errs() << "failed to verify mlir module\n";
+    return -1;
   }
 
   auto convertGepInBounds = [](llvm::Module &llvmModule) {
@@ -939,6 +951,12 @@ int main(int argc, char **argv) {
       pm.addPass(polygeist::createCollectKernelStatisticsPass());
     }
 #endif
+
+    pm.addPass(mlir::polygeist::groupAnnotationPass());
+    pm.addPass(mlir::polygeist::outlinePass());
+
+    mlir::OpPassManager &funcPM = pm.nest<mlir::func::FuncOp>();
+    funcPM.addPass(mlir::polygeist::tilingPass());
 
     if (mlir::failed(pm.run(module.get()))) {
       module->dump();

@@ -39,13 +39,11 @@ private:
       
       for (auto operand : linalgOp->getOperands()) {
         if (auto defineOp = operand.getDefiningOp<mlir::tensor::EmptyOp>()) {
-          if (defineOp->getParentOp() == linalgOp->getParentOp() && 
-              std::find(groupOps[groupId].begin(), groupOps[groupId].end(), defineOp) == groupOps[groupId].end())
+          if (std::find(groupOps[groupId].begin(), groupOps[groupId].end(), defineOp) == groupOps[groupId].end())
             groupOps[groupId].push_back(defineOp);
         }
         if (auto defineOp = operand.getDefiningOp<mlir::arith::ConstantOp>()) {
-          if (defineOp->getParentOp() == linalgOp->getParentOp() &&
-              std::find(groupOps[groupId].begin(), groupOps[groupId].end(), defineOp) == groupOps[groupId].end())
+          if (std::find(groupOps[groupId].begin(), groupOps[groupId].end(), defineOp) == groupOps[groupId].end())
             groupOps[groupId].push_back(defineOp);
         }
       }
@@ -97,6 +95,8 @@ private:
     }
     builder.create<func::ReturnOp>(module.getLoc(), returnValues);
     
+    outlinedFunc->setAttr("mpu", builder.getUnitAttr());
+
     return outlinedFunc;
   }
   
