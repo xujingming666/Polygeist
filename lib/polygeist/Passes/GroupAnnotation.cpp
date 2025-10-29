@@ -30,6 +30,7 @@ struct GroupAnnotationPass : public GroupAnnotationBase<GroupAnnotationPass> {
     Operation* prevOp = currentOp->getPrevNode();
     while (prevOp && !isa<linalg::LinalgOp>(prevOp)) {
       if (isa<tensor::EmptyOp>(prevOp) ||
+          isa<tensor::ExpandShapeOp>(prevOp) ||
           prevOp->getName().getStringRef().starts_with("arith."))
         prevOp = prevOp->getPrevNode();
       else

@@ -8,8 +8,10 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Dominance.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
-#include "polygeist/Passes/Passes.h"
 #include "llvm/Support/Debug.h"
+
+#include "polygeist/Passes/Passes.h"
+#include "polygeist/Interface.h"
 
 using namespace mlir;
 using namespace polygeist;
@@ -31,25 +33,37 @@ public:
 private:
   void outlineOperationsInFunction(func::FuncOp parentFunc, ModuleOp module) {
     std::map<int64_t, SmallVector<Operation*>> groupOps;
-    parentFunc.walk([&](linalg::LinalgOp linalgOp) {
-      int64_t groupId = dyn_cast<IntegerAttr>(linalgOp->getAttr("group_id")).getInt();
+    parentFunc.walk([&](mlir::Operation *op) {
+      if (auto linalgOp = dyn_cast<linalg::LinalgOp>(op)) {
+        int64_t groupId = dyn_cast<IntegerAttr>(linalgOp->getAttr("group_id")).getInt();
 
-      if (groupOps.count(groupId) == 0)
-        groupOps[groupId] = {};
-      
-      for (auto operand : linalgOp->getOperands()) {
-        if (auto defineOp = operand.getDefiningOp<mlir::tensor::EmptyOp>()) {
-          if (std::find(groupOps[groupId].begin(), groupOps[groupId].end(), defineOp) == groupOps[groupId].end())
-            groupOps[groupId].push_back(defineOp);
+        if (groupOps.count(groupId) == 0)
+          groupOps[groupId] = {};
+        
+        for (auto operand : linalgOp->getOperands()) {
+          if (auto defineOp = operand.getDefiningOp<mlir::tensor::EmptyOp>()) {
+            if (std::find(groupOps[groupId].begin(), groupOps[groupId].end(), defineOp) == groupOps[groupId].end())
+              groupOps[groupId].push_back(defineOp);
+          }
+          if (auto defineOp = operand.getDefiningOp<mlir::arith::ConstantOp>()) {
+            if (std::find(groupOps[groupId].begin(), groupOps[groupId].end(), defineOp) == groupOps[groupId].end())
+              groupOps[groupId].push_back(defineOp);
+          }
         }
-        if (auto defineOp = operand.getDefiningOp<mlir::arith::ConstantOp>()) {
-          if (std::find(groupOps[groupId].begin(), groupOps[groupId].end(), defineOp) == groupOps[groupId].end())
-            groupOps[groupId].push_back(defineOp);
+
+        groupOps[groupId].push_back(linalgOp);
+        
+        if (isa<linalg::ReduceOp>(op)) {
+          mlir::Value resultValue = linalgOp->getResults()[0];
+          if (resultValue.hasOneUse()) {
+            auto expandOp = dyn_cast<tensor::ExpandShapeOp>(resultValue.use_begin()->getOwner());
+            if (expandOp)
+              if (std::find(groupOps[groupId].begin(), groupOps[groupId].end(), expandOp) == groupOps[groupId].end())
+                groupOps[groupId].push_back(expandOp);
+          }
         }
+        linalgOp->removeAttr("group_id");
       }
-
-      groupOps[groupId].push_back(linalgOp);
-      linalgOp->removeAttr("group_id");
     });
     
     for(auto it : groupOps) {

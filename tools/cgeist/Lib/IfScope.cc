@@ -46,7 +46,8 @@ llvm::SmallVector<mlir::Value, 4> IfScope::getDynamicValues(mlir::Location &loc,
   for (int64_t shape : type.getShape()) {
     if (shape == ShapedType::kDynamic) {
       dynamicValues.push_back(
-        builder.create<arith::ConstantOp>(loc, builder.getIntegerAttr(builder.getI32Type(), 0))
+        builder.create<arith::IndexCastOp>(loc, builder.getIndexType(),
+          builder.create<arith::ConstantOp>(loc, builder.getIntegerAttr(builder.getI32Type(), 0)))
       );
     }
   }

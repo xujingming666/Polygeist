@@ -7,7 +7,7 @@ void kernel_deriche(__ddr float *lhs, __ddr float *rhs, __ddr __output float *ou
     // auto lhs_tensor = to_tensor(lhs, {length});
     arr[0] = length;
     arr[2] = length;
-    SL_VECTOR<int> temp = {arr[0], arr[2]};
+    SL_VECTOR<int> temp = {arr[0], arr[2], arr[2], arr[2]};
     // SL_VECTOR<int> temp1({length, i});
     int vlen = 1024;
     auto lhs_tensor = to_tensor(lhs, temp);
@@ -15,10 +15,11 @@ void kernel_deriche(__ddr float *lhs, __ddr float *rhs, __ddr __output float *ou
     auto out_tensor = to_tensor(out, temp);
     auto out1_tensor = to_tensor(out1, temp);
 
-    auto lhs_um = mac_load(lhs_tensor, {vlen, vlen}, {0, 0});
-    auto rhs_um = mac_load(rhs_tensor, {vlen, vlen}, {0, 0});
-    auto out_um = mac_load(out_tensor, {vlen, vlen}, {0, 0});
-    auto out1_um = mac_load(out1_tensor, {vlen, vlen}, {0, 0});
+    auto lhs_um = mac_load(lhs_tensor, {vlen, vlen, vlen, vlen}, {0, 0, 0, 0});
+    auto rhs_um = mac_load(rhs_tensor, {vlen, vlen, vlen, vlen}, {0, 0, 0, 0});
+    auto weight_um = mac_load(rhs_tensor, {vlen, vlen, 3, 3}, {0, 0, 0, 0});
+    auto out_um = mac_load(out_tensor, {vlen, vlen, vlen, vlen}, {0, 0, 0, 0});
+    auto out1_um = mac_load(out1_tensor, {vlen, vlen, vlen, vlen}, {0, 0, 0, 0});
 
     for (int i =0, j = 32;i<length; i += 32) {
         if (i > j) {
@@ -45,7 +46,7 @@ void kernel_deriche(__ddr float *lhs, __ddr float *rhs, __ddr __output float *ou
         }
         if (i > h) {
             out1_um += mac_add(out1_um, lhs_um);
-            out1_um += mac_matmul(out1_um, rhs_um);
+            out1_um += mac_conv2d(out1_um, weight_um, {1, 1}, {1, 1});
             out1_um += mac_sqrt(out1_um);
             out1_um += mac_add(out1_um, rhs_um);
         }

@@ -29,7 +29,7 @@ mlir::Value getConstantIndexValue(OpBuilder &builder, Location loc, int64_t valu
   return builder.create<arith::IndexCastOp>(loc, builder.getIndexType(), indexValue);
 }
 
-llvm::SmallVector<int64_t> getStaticShape(mlir::Value value, int dim) {
+llvm::SmallVector<int64_t> getStaticShape(mlir::Value value, const int dim) {
   llvm::SmallVector<int64_t> shapes(dim, ShapedType::kDynamic);
   if (auto fromElem = value.getDefiningOp<tensor::FromElementsOp>()) {
     for (auto it : llvm::enumerate(fromElem.getOperands())) {
@@ -174,18 +174,20 @@ MLIRScanner::EmitTensorCallOps(clang::CallExpr *expr) {
 
     SmallVector<int64_t> resultShape = getStaticShape(argValues[1], dim);
     SmallVector<int64_t> strideValueStatic(dim, 1);
-    SmallVector<int64_t> sizeValueStatic(dim, ShapedType::kDynamic),
-                         offsetValueStatic(dim, ShapedType::kDynamic);
+    SmallVector<int64_t> sizeValueStatic = resultShape,
+                         offsetValueStatic = getStaticShape(argValues[2], dim);
     auto resultType = mlir::RankedTensorType::get(resultShape, elementType);
     SmallVector<mlir::Value> sizeValueDynamic, offsetValueDynamic;
     for (int i = 0; i < dim; i++) {
       auto indexValue = getConstantIndexValue(builder, loc, i);
-      sizeValueDynamic.push_back(
-        builder.create<arith::IndexCastOp>(loc, builder.getIndexType(),
-          builder.create<tensor::ExtractOp>(loc, argValues[1], ValueRange{indexValue})));
-      offsetValueDynamic.push_back(
-        builder.create<arith::IndexCastOp>(loc, builder.getIndexType(),
-          builder.create<tensor::ExtractOp>(loc, argValues[2], ValueRange{indexValue})));
+      if (sizeValueStatic[i] == ShapedType::kDynamic)
+        sizeValueDynamic.push_back(
+          builder.create<arith::IndexCastOp>(loc, builder.getIndexType(),
+            builder.create<tensor::ExtractOp>(loc, argValues[1], ValueRange{indexValue})));
+      if (offsetValueStatic[i] == ShapedType::kDynamic)
+        offsetValueDynamic.push_back(
+          builder.create<arith::IndexCastOp>(loc, builder.getIndexType(),
+            builder.create<tensor::ExtractOp>(loc, argValues[2], ValueRange{indexValue})));
     }
 
     auto loadTensor = builder.create<tensor::ExtractSliceOp>(loc, resultType,
@@ -207,15 +209,18 @@ MLIRScanner::EmitTensorCallOps(clang::CallExpr *expr) {
     auto elementType = tensorType.getElementType();
 
     SmallVector<int64_t> resultShape(dim, ShapedType::kDynamic);
-    SmallVector<int64_t> strideValueStatic(dim, 1), offsetValueStatic(dim, ShapedType::kDynamic);
+    SmallVector<int64_t> strideValueStatic(dim, 1), 
+                         offsetValueStatic = getStaticShape(argValues[2], dim);
     auto resultType = mlir::RankedTensorType::get(resultShape, elementType);
     SmallVector<mlir::Value> offsetValueDynamic, sizeValueDynamic;
     for (int i = 0; i < dim; i++) {
-      auto indexValue = getConstantIndexValue(builder, loc, i);
-      offsetValueDynamic.push_back(
-        builder.create<arith::IndexCastOp>(loc, builder.getIndexType(),
-          builder.create<tensor::ExtractOp>(loc, argValues[2], ValueRange{indexValue}))
-      );
+      if (offsetValueStatic[i] == ShapedType::kDynamic) {
+        auto indexValue = getConstantIndexValue(builder, loc, i);
+        offsetValueDynamic.push_back(
+          builder.create<arith::IndexCastOp>(loc, builder.getIndexType(),
+            builder.create<tensor::ExtractOp>(loc, argValues[2], ValueRange{indexValue}))
+        );
+      }
       if (sizeValueStatic[i] == ShapedType::kDynamic)
         sizeValueDynamic.push_back(builder.create<tensor::DimOp>(loc, argValues[1], i));
     }
@@ -301,6 +306,146 @@ MLIRScanner::EmitTensorCallOps(clang::CallExpr *expr) {
   }
   if (fd->getName() == "mac_erf") {
     return EmitTensorUnaryOps(expr, builder, loc, linalg::UnaryFn::erf);
+  }
+
+  if (fd->getName() == "mac_matmul") {
+    llvm::SmallVector<mlir::Value, 4> argValues;
+    for (clang::Expr *argExpr : llvm::ArrayRef<clang::Expr *>(expr->getArgs(), expr->getNumArgs())) {
+      argValues.push_back(
+        Visit(argExpr).getValue(loc, builder));
+    }
+    auto lhsType = dyn_cast<mlir::RankedTensorType>(argValues[0].getType());
+    auto rhsType = dyn_cast<mlir::RankedTensorType>(argValues[1].getType());
+    auto lhsShape = lhsType.getShape();
+    auto elementType = lhsType.getElementType();
+    auto rhsShape = rhsType.getShape();
+    llvm::SmallVector<int64_t> resultShape(2, ShapedType::kDynamic);
+    resultShape[0] = lhsShape[0];
+    resultShape[1] = rhsShape[1];
+
+    llvm::SmallVector<mlir::Value> dynamicSizes;
+    if (resultShape[0] == ShapedType::kDynamic) {
+      auto mValue = builder.create<tensor::DimOp>(loc, argValues[0], 0);
+      dynamicSizes.push_back(mValue);
+    }
+    if (resultShape[0] == ShapedType::kDynamic) {
+      auto nValue = builder.create<tensor::DimOp>(loc, argValues[1], 1);
+      dynamicSizes.push_back(nValue);
+    }
+
+    auto resultType = RankedTensorType::get(resultShape, elementType);
+
+    auto allocTensor = builder.create<tensor::EmptyOp>(loc, resultShape, elementType, dynamicSizes);
+    auto matmulResult = builder.create<linalg::MatmulOp>(loc, resultType, 
+          ValueRange{argValues[0], argValues[1]}, ValueRange{allocTensor});
+
+    return make_pair(ValueCategory(matmulResult.getResults()[0], true), true);
+  }
+
+  if (fd->getName() == "mac_conv2d") {
+    llvm::SmallVector<mlir::Value, 4> argValues;
+    for (clang::Expr *argExpr : llvm::ArrayRef<clang::Expr *>(expr->getArgs(), expr->getNumArgs())) {
+      argValues.push_back(
+        Visit(argExpr).getValue(loc, builder));
+    }
+    auto lhsType = dyn_cast<mlir::RankedTensorType>(argValues[0].getType());
+    auto rhsType = dyn_cast<mlir::RankedTensorType>(argValues[1].getType());
+    auto elementType = lhsType.getElementType();
+    auto lhsRank = lhsType.getRank();
+    auto lhsShape = lhsType.getShape();
+    auto rhsShape = rhsType.getShape();
+    llvm::SmallVector<int64_t> resultShape(lhsRank, ShapedType::kDynamic);
+    resultShape[0] = lhsShape[0];
+    resultShape[1] = rhsShape[0];
+    resultShape[2] = lhsShape[2];
+    resultShape[3] = lhsShape[3];
+
+    llvm::SmallVector<mlir::Value> dynamicSizes;
+    if (resultShape[0] == ShapedType::kDynamic) {
+      auto nValue = builder.create<tensor::DimOp>(loc, argValues[0], 0);
+      dynamicSizes.push_back(nValue);
+    }
+    if (resultShape[1] == ShapedType::kDynamic) {
+      auto cValue = builder.create<tensor::DimOp>(loc, argValues[1], 0);
+      dynamicSizes.push_back(cValue);
+    }
+    if (resultShape[2] == ShapedType::kDynamic) {
+      auto hValue = builder.create<tensor::DimOp>(loc, argValues[0], 2);
+      dynamicSizes.push_back(hValue);
+    }
+    if (resultShape[3] == ShapedType::kDynamic) {
+      auto wValue = builder.create<tensor::DimOp>(loc, argValues[0], 3);
+      dynamicSizes.push_back(wValue);
+    }
+
+    int rank = dyn_cast<mlir::RankedTensorType>(argValues[2].getType()).getShape()[0];
+    llvm::SmallVector<int64_t> strideStatic = getStaticShape(argValues[2], rank);
+
+    rank = dyn_cast<mlir::RankedTensorType>(argValues[3].getType()).getShape()[0];
+    llvm::SmallVector<int64_t> dilationStatic = getStaticShape(argValues[3], rank);
+
+    rank = dyn_cast<mlir::RankedTensorType>(argValues[4].getType()).getShape()[0];
+    llvm::SmallVector<int64_t> paddingStatic = getStaticShape(argValues[4], rank);
+    
+    auto resultType = RankedTensorType::get(resultShape, elementType);
+    auto allocTensor = builder.create<tensor::EmptyOp>(loc, resultShape, elementType, dynamicSizes);
+    auto conv2dResult = builder.create<linalg::Conv2DNchwFchwOp>(loc, resultType,
+          ValueRange{argValues[0], argValues[1]}, ValueRange{allocTensor},
+          builder.getI64ArrayAttr(strideStatic),
+          builder.getI64ArrayAttr(dilationStatic),
+          ArrayRef<mlir::NamedAttribute>({
+            builder.getNamedAttr("padding", builder.getI64ArrayAttr(paddingStatic))
+          }));
+
+    return make_pair(ValueCategory(conv2dResult.getResults()[0], true), true);
+  }
+
+  if (fd->getName() == "mac_min") {
+    llvm::SmallVector<mlir::Value, 4> argValues;
+    for (clang::Expr *argExpr : llvm::ArrayRef<clang::Expr *>(expr->getArgs(), expr->getNumArgs())) {
+      argValues.push_back(
+        Visit(argExpr).getValue(loc, builder));
+    }
+    auto inputType = dyn_cast<mlir::RankedTensorType>(argValues[0].getType());
+    auto elementType = inputType.getElementType();
+    auto inputRank = inputType.getRank();
+    auto inputShape = inputType.getShape();
+
+    int64_t reduceDim = argValues[1].getDefiningOp<arith::ConstantOp>().getValue()
+                          .dyn_cast<IntegerAttr>().getValue().getSExtValue();
+    mlir::Value allocTensor;
+    if (inputRank > 1) {
+      llvm::SmallVector<int64_t> resultShape(inputRank - 1, ShapedType::kDynamic);
+      for (int i = 0; i < inputRank - 1; i++) {
+        resultShape[i] = (i < reduceDim) ? inputShape[i] : inputShape[i+1];
+      }
+
+      llvm::SmallVector<mlir::Value> dynamicSizes;
+      for (auto it : llvm::enumerate(resultShape)) {
+        if (it.value() == ShapedType::kDynamic) {
+          auto sizeValue = builder.create<tensor::DimOp>(loc, argValues[0], 
+                          (it.index() < reduceDim) ? it.index() : (it.index() + 1));
+          dynamicSizes.push_back(sizeValue);
+        }
+      }
+      allocTensor = builder.create<tensor::EmptyOp>(loc, resultShape, elementType, dynamicSizes);
+    } else 
+      allocTensor = builder.create<tensor::EmptyOp>(loc, 
+                      mlir::RankedTensorType::get({}, elementType), ValueRange{});
+
+    auto reduceResult = builder.create<linalg::ReduceOp>(loc,
+          ValueRange{argValues[0]}, ValueRange{allocTensor},
+          llvm::ArrayRef{reduceDim},
+          [&](mlir::OpBuilder &b, Location loc, ValueRange inputs) {
+            auto minOp = b.create<arith::MinimumFOp>(loc, inputs[0], inputs[1]);
+            b.create<linalg::YieldOp>(loc, minOp.getResult());
+          });
+    if (inputRank == 1) {
+      mlir::Value expandResult = builder.create<tensor::ExpandShapeOp>(loc, 
+          mlir::RankedTensorType::get({1}, elementType), reduceResult.getResults()[0], ArrayRef<ReassociationExprs>{});
+      return make_pair(ValueCategory(expandResult, true), true);
+    }
+    return make_pair(ValueCategory(reduceResult.getResults()[0], true), true);
   }
 
   if (fd->getName() == "mac_fill") {
