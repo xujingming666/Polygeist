@@ -52,7 +52,7 @@ void kernel_deriche(__ddr float *lhs, __ddr float *rhs, __ddr __output float *ou
         }
         j+=16;
     }
-    mac_store(out_tensor, out_um, {0, 0});
-    mac_store(out1_tensor, out1_um, {0, 0});
+    mac_store(out_tensor, out_um, {0, 0, 0, 0});
+    mac_store(out1_tensor, out1_um, {0, 0, 0, 0});
 }
 

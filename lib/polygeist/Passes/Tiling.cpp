@@ -225,6 +225,41 @@ struct LinalgOpTilingInterface
     return opTileSize;
   }
   
+  llvm::SmallVector<int64_t> getBroadcastFuseTileSize(mlir::linalg::BroadcastOp op) const {
+    auto returnType = dyn_cast<mlir::RankedTensorType>(op->getResultTypes()[0]);
+    int64_t rank = returnType.getRank();
+    auto elementType = returnType.getElementType();
+    int bpe = elementType.getIntOrFloatBitWidth()/8;
+    
+    auto broadcastDims = op.getDimensions();
+
+    auto input = op->getOperand(0);
+    auto inputTileSize = getValueTileSize(input);
+
+    llvm::SmallVector<int64_t> opTileSize(rank, 1);
+    for (auto bDim : broadcastDims) {
+      opTileSize[bDim] = 0;
+    }
+    for (int i = rank - 1; i >= 0; i--) {
+      if (std::find(broadcastDims.begin(), broadcastDims.end(), i) == broadcastDims.end()) {
+        opTileSize[i] = 64/bpe;
+        break;
+      }
+    }
+
+    if (inputTileSize.size() > 0) {
+      int bIdx = 0;
+      for (int i = 0; i < opTileSize.size(); i++) {
+        if (std::find(broadcastDims.begin(), broadcastDims.end(), i) != broadcastDims.end()) {
+          bIdx++;
+          continue;
+        }
+        opTileSize[i] = mergeTileSize(inputTileSize[i - bIdx], opTileSize[i]);
+      }
+    }
+    return opTileSize;
+  }
+
   // broadcast&reduce's reduce dim should not be tiled in Fuse Tiling.
   llvm::SmallVector<int64_t> getFuseTileSize(mlir::Operation *op) const {
     if constexpr (std::is_same_v<OpType, linalg::MatmulOp>) {
@@ -247,6 +282,9 @@ struct LinalgOpTilingInterface
     }
     if constexpr (std::is_same_v<OpType, mlir::linalg::ReduceOp>) {
       return getReduceFuseTileSize(dyn_cast<mlir::linalg::ReduceOp>(op));
+    }
+    if constexpr (std::is_same_v<OpType, mlir::linalg::BroadcastOp>) {
+      return getBroadcastFuseTileSize(dyn_cast<mlir::linalg::BroadcastOp>(op));
     }
     assert(false && " Not Supported Linalg Op \n");
     return {};
@@ -281,8 +319,10 @@ struct TilingPass : public TilingBase<TilingPass> {
     std::iota(tileInterchange.begin(), tileInterchange.end(), 0);
 
     auto anyType = transform::AnyOpType::get(builder.getContext());
-    llvm::SmallVector<mlir::Type> loopTypes(tileSize.size(), anyType);
-
+    llvm::SmallVector<mlir::Type> loopTypes(
+      std::count_if(tileSize.begin(), tileSize.end(), 
+                    [](int64_t x) { return x != 0; }), 
+      anyType);
     auto sequenceOp = builder.create<transform::SequenceOp>(
         loc, TypeRange{}, transform::FailurePropagationMode::Propagate, anyType,
         [&](OpBuilder &b, Location loc, mlir::BlockArgument root) {
@@ -299,7 +339,7 @@ struct TilingPass : public TilingBase<TilingPass> {
                                       matchFuncOp->getResult(0),
                                       builder.getI64ArrayAttr(llvm::ArrayRef<int64_t>{tileSize}),
                                       builder.getI64ArrayAttr(llvm::ArrayRef<int64_t>{tileInterchange}),
-                                      builder.getBoolAttr(false));
+                                      builder.getBoolAttr(true));
           b.create<transform::ApplyPatternsOp>(loc, root,
             [&](OpBuilder &b, Location loc) {
               b.create<transform::ApplyCanonicalizationPatternsOp>(loc);
@@ -318,14 +358,15 @@ struct TilingPass : public TilingBase<TilingPass> {
     for (mlir::Operation * anchorOp : anchorOps) {
       llvm::SetVector<mlir::Operation *> anchorOpPreds;
       mlir::getBackwardSlice(anchorOp, &anchorOpPreds);
+
       if (anchorOpPreds.count(op) > 0)
         return;
 
       llvm::SetVector<mlir::Operation *> opPreds;
       mlir::getBackwardSlice(op, &opPreds);
-      if (opPreds.count(anchorOp)) {
-        std::remove_if(anchorOps.begin(), anchorOps.end(), 
-          [&](mlir::Operation *elem) { return anchorOp == elem; });
+
+      if (opPreds.count(anchorOp) > 0) {
+        anchorOps.erase(std::find(anchorOps.begin(), anchorOps.end(), anchorOp));
         anchorOps.push_back(op);
         return;
       }

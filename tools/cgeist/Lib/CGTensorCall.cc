@@ -29,7 +29,8 @@ mlir::Value getConstantIndexValue(OpBuilder &builder, Location loc, int64_t valu
   return builder.create<arith::IndexCastOp>(loc, builder.getIndexType(), indexValue);
 }
 
-llvm::SmallVector<int64_t> getStaticShape(mlir::Value value, const int dim) {
+llvm::SmallVector<int64_t> getStaticShape(mlir::Value value) {
+  int dim = dyn_cast<mlir::RankedTensorType>(value.getType()).getShape()[0];
   llvm::SmallVector<int64_t> shapes(dim, ShapedType::kDynamic);
   if (auto fromElem = value.getDefiningOp<tensor::FromElementsOp>()) {
     for (auto it : llvm::enumerate(fromElem.getOperands())) {
@@ -145,8 +146,7 @@ MLIRScanner::EmitTensorCallOps(clang::CallExpr *expr) {
     auto unrankedTensorType = UnrankedTensorType::get(memrefType.getElementType());
     argValues[0] = builder.create<mlir::bufferization::ToTensorOp>(loc, unrankedTensorType, argValues[0], true, true);
 
-    int dim = dyn_cast<mlir::RankedTensorType>(argValues[1].getType()).getShape()[0];
-    llvm::SmallVector<int64_t> shape = getStaticShape(argValues[1], dim);
+    llvm::SmallVector<int64_t> shape = getStaticShape(argValues[1]);
     auto tensorType = RankedTensorType::get(shape, memrefType.getElementType(),
                         builder.getI64IntegerAttr(memrefType.getMemorySpaceAsInt()));
     mlir::Value reshapeTensor = builder.create<mlir::tensor::ReshapeOp>(loc, tensorType, argValues[0], argValues[1]);
@@ -172,10 +172,10 @@ MLIRScanner::EmitTensorCallOps(clang::CallExpr *expr) {
     int dim = tensorType.getShape().size();
     auto elementType = tensorType.getElementType();
 
-    SmallVector<int64_t> resultShape = getStaticShape(argValues[1], dim);
+    SmallVector<int64_t> resultShape = getStaticShape(argValues[1]);
     SmallVector<int64_t> strideValueStatic(dim, 1);
     SmallVector<int64_t> sizeValueStatic = resultShape,
-                         offsetValueStatic = getStaticShape(argValues[2], dim);
+                         offsetValueStatic = getStaticShape(argValues[2]);
     auto resultType = mlir::RankedTensorType::get(resultShape, elementType);
     SmallVector<mlir::Value> sizeValueDynamic, offsetValueDynamic;
     for (int i = 0; i < dim; i++) {
@@ -210,7 +210,7 @@ MLIRScanner::EmitTensorCallOps(clang::CallExpr *expr) {
 
     SmallVector<int64_t> resultShape(dim, ShapedType::kDynamic);
     SmallVector<int64_t> strideValueStatic(dim, 1), 
-                         offsetValueStatic = getStaticShape(argValues[2], dim);
+                         offsetValueStatic = getStaticShape(argValues[2]);
     auto resultType = mlir::RankedTensorType::get(resultShape, elementType);
     SmallVector<mlir::Value> offsetValueDynamic, sizeValueDynamic;
     for (int i = 0; i < dim; i++) {
@@ -378,14 +378,9 @@ MLIRScanner::EmitTensorCallOps(clang::CallExpr *expr) {
       dynamicSizes.push_back(wValue);
     }
 
-    int rank = dyn_cast<mlir::RankedTensorType>(argValues[2].getType()).getShape()[0];
-    llvm::SmallVector<int64_t> strideStatic = getStaticShape(argValues[2], rank);
-
-    rank = dyn_cast<mlir::RankedTensorType>(argValues[3].getType()).getShape()[0];
-    llvm::SmallVector<int64_t> dilationStatic = getStaticShape(argValues[3], rank);
-
-    rank = dyn_cast<mlir::RankedTensorType>(argValues[4].getType()).getShape()[0];
-    llvm::SmallVector<int64_t> paddingStatic = getStaticShape(argValues[4], rank);
+    llvm::SmallVector<int64_t> strideStatic = getStaticShape(argValues[2]);
+    llvm::SmallVector<int64_t> dilationStatic = getStaticShape(argValues[3]);
+    llvm::SmallVector<int64_t> paddingStatic = getStaticShape(argValues[4]);
     
     auto resultType = RankedTensorType::get(resultShape, elementType);
     auto allocTensor = builder.create<tensor::EmptyOp>(loc, resultShape, elementType, dynamicSizes);
@@ -448,6 +443,27 @@ MLIRScanner::EmitTensorCallOps(clang::CallExpr *expr) {
     return make_pair(ValueCategory(reduceResult.getResults()[0], true), true);
   }
 
+  if (fd->getName() == "mac_broadcast") {
+    llvm::SmallVector<mlir::Value, 4> argValues;
+    for (clang::Expr *argExpr : llvm::ArrayRef<clang::Expr *>(expr->getArgs(), expr->getNumArgs())) {
+      argValues.push_back(
+        Visit(argExpr).getValue(loc, builder));
+    }
+    auto inputType = dyn_cast<mlir::RankedTensorType>(argValues[0].getType());
+    auto elementType = inputType.getElementType();
+    auto inputRank = inputType.getRank();
+    auto inputShape = inputType.getShape();
+
+    auto resultShape = getStaticShape(argValues[1]);
+    auto axis = getStaticShape(argValues[2]);
+
+    auto allocTensor = builder.create<tensor::EmptyOp>(loc, resultShape, elementType, ValueRange{});
+    auto broadcastResult = builder.create<linalg::BroadcastOp>(loc,
+                          argValues[0], allocTensor, axis);
+
+    return make_pair(ValueCategory(broadcastResult.getResults()[0], true), true);
+  }
+
   if (fd->getName() == "mac_fill") {
     llvm::SmallVector<mlir::Value, 4> argValues;
     for (clang::Expr *argExpr : llvm::ArrayRef<clang::Expr *>(expr->getArgs(), expr->getNumArgs())) {
@@ -457,7 +473,7 @@ MLIRScanner::EmitTensorCallOps(clang::CallExpr *expr) {
 
     auto elementType = argValues[0].getType();
     int dim = dyn_cast<mlir::RankedTensorType>(argValues[1].getType()).getShape()[0];
-    SmallVector<int64_t> resultShape = getStaticShape(argValues[1], dim);
+    SmallVector<int64_t> resultShape = getStaticShape(argValues[1]);
     auto resultType = RankedTensorType::get(resultShape, elementType);
     
     SmallVector<mlir::Value> dynamicShapes;

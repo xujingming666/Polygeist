@@ -64,9 +64,10 @@ template<typename T> SL_TENSOR_UM<T> &mac_square(SL_TENSOR_UM<T> &lhs);
 template<typename T> SL_TENSOR_UM<T> &mac_tanh(SL_TENSOR_UM<T> &lhs);
 template<typename T> SL_TENSOR_UM<T> &mac_erf(SL_TENSOR_UM<T> &lhs);
 
-
 template<typename T> SL_TENSOR_UM<T> &mac_matmul(SL_TENSOR_UM<T> &lhs, SL_TENSOR_UM<T> &rhs);
 template<typename T> SL_TENSOR_UM<T> &mac_conv2d(SL_TENSOR_UM<T> &lhs, SL_TENSOR_UM<T> &rhs,
         SL_VECTOR<int> stride, SL_VECTOR<int> dilation, SL_VECTOR<int> padding = {0, 0, 0, 0});
+template<typename T> SL_TENSOR_UM<T> &mac_broadcast(SL_TENSOR_UM<T> &input,
+        SL_VECTOR<int> shape, SL_VECTOR<int> axis);
 
 template<typename T> SL_TENSOR_UM<T> &mac_min(SL_TENSOR_UM<T> &input, const int axis);
